@@ -1,0 +1,1166 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { YawmiLogo } from "@/components/yawmi-logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  UserCheck,
+  Building2,
+  Clock,
+  FileCheck2,
+  Users,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  LogOut,
+  MapPin,
+  Search,
+  Check,
+  X,
+  Loader2,
+  Filter,
+  ShieldCheck,
+  ShieldAlert,
+  Calendar,
+  RotateCcw,
+} from "lucide-react";
+
+interface Branch {
+  id: string;
+  name: string;
+  geofence_radius: number;
+  latitude: number;
+  longitude: number;
+  is_active: boolean;
+}
+
+interface SupervisorPermissions {
+  can_approve_employees: boolean;
+  can_exceed_edit_limit: boolean;
+  can_close_month: boolean;
+}
+
+interface AttendanceRecord {
+  id: string;
+  employee_id: string;
+  branch_id: string | null;
+  shift_date: string;
+  check_in_at: string | null;
+  check_out_at: string | null;
+  late_minutes: number;
+  overtime_minutes: number;
+  is_manual_edit: boolean;
+  grace_period_applied: boolean;
+  status: string;
+  employee?: {
+    id: string;
+    full_name: string;
+    job_title: string | null;
+    phone: string | null;
+  };
+  branch?: {
+    id: string;
+    name: string;
+  };
+}
+
+interface RequestRecord {
+  id: string;
+  company_id: string;
+  branch_id: string | null;
+  employee_id: string;
+  type: "manual_edit" | "leave" | "permission" | "shift_change" | "device_reset";
+  direction: "outgoing";
+  status: "pending" | "approved" | "rejected";
+  payload: any;
+  attachment_url: string | null;
+  review_note: string | null;
+  created_at: string;
+  employee?: {
+    id: string;
+    full_name: string;
+    job_title: string | null;
+    phone: string | null;
+  };
+  branch?: {
+    id: string;
+    name: string;
+  };
+}
+
+interface PendingEmployee {
+  id: string;
+  full_name: string;
+  national_id: string;
+  nationality: string;
+  job_title: string | null;
+  phone: string | null;
+  branch_id: string | null;
+  shift_template_id: string | null;
+  created_at: string;
+  branch?: {
+    id: string;
+    name: string;
+  };
+  shift_template?: {
+    id: string;
+    name: string;
+  };
+}
+
+export default function BranchSupervisorPage() {
+  const router = useRouter();
+  const supabase = createClient();
+  const { t, dir } = useLanguage();
+
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<any>(null);
+  const [assignedBranches, setAssignedBranches] = useState<Branch[]>([]);
+  const [permissions, setPermissions] = useState<SupervisorPermissions>({
+    can_approve_employees: false,
+    can_exceed_edit_limit: false,
+    can_close_month: false,
+  });
+
+  const [activeTab, setActiveTab] = useState<"attendance" | "requests" | "approvals">("attendance");
+
+  // Data states
+  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceRecord[]>([]);
+  const [requests, setRequests] = useState<RequestRecord[]>([]);
+  const [pendingEmployees, setPendingEmployees] = useState<PendingEmployee[]>([]);
+
+  // Filters & search
+  const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Review modal
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState<RequestRecord | null>(null);
+  const [reviewAction, setReviewAction] = useState<"approve" | "reject">("approve");
+  const [reviewNote, setReviewNote] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Employee action loading
+  const [empActionLoading, setEmpActionLoading] = useState<string | null>(null);
+
+  // Auto-opened Employee Assignment Modal
+  const [shiftTemplates, setShiftTemplates] = useState<Array<{ id: string; name: string }>>([]);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assigningEmp, setAssigningEmp] = useState<PendingEmployee | null>(null);
+  const [assignBranchId, setAssignBranchId] = useState("");
+  const [assignShiftId, setAssignShiftId] = useState("");
+  const [assignJobTitle, setAssignJobTitle] = useState("");
+  const [assignLoading, setAssignLoading] = useState(false);
+
+  useEffect(() => {
+    loadSupervisorData();
+  }, []);
+
+  const loadSupervisorData = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      // Fetch user profile
+      const { data: profileData, error: profileErr } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileErr || !profileData) {
+        router.push("/login");
+        return;
+      }
+
+      // Verify authorization
+      if (profileData.role !== "branch_supervisor" && profileData.role !== "company_manager" && profileData.role !== "super_admin") {
+        router.push("/login");
+        return;
+      }
+
+      setProfile(profileData);
+
+      const perms = profileData.supervisor_permissions || {};
+      const parsedPermissions: SupervisorPermissions = {
+        can_approve_employees: !!perms.can_approve_employees,
+        can_exceed_edit_limit: !!perms.can_exceed_edit_limit,
+        can_close_month: !!perms.can_close_month,
+      };
+      setPermissions(parsedPermissions);
+
+      // Fetch assigned branches
+      let branchList: Branch[] = [];
+      if (profileData.role === "company_manager" || profileData.role === "super_admin") {
+        // Manager can view all company branches
+        const { data: allBranches } = await supabase
+          .from("branches")
+          .select("*")
+          .eq("company_id", profileData.company_id)
+          .eq("is_active", true)
+          .order("name", { ascending: true });
+        branchList = allBranches || [];
+      } else {
+        const { data: supBranches } = await supabase
+          .from("branch_supervisors")
+          .select("branch_id, branches(*)")
+          .eq("supervisor_id", user.id);
+
+        if (supBranches && supBranches.length > 0) {
+          branchList = supBranches
+            .map((sb: any) => sb.branches)
+            .filter((b: any) => b && b.is_active);
+        }
+      }
+
+      setAssignedBranches(branchList);
+
+      if (branchList.length > 0) {
+        const branchIds = branchList.map((b) => b.id);
+        const todayStr = new Date().toISOString().split("T")[0];
+
+        // 1. Fetch Today's Attendance Logs for assigned branches
+        const { data: attData } = await supabase
+          .from("attendance_logs")
+          .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
+          .eq("company_id", profileData.company_id)
+          .in("branch_id", branchIds)
+          .eq("shift_date", todayStr)
+          .order("check_in_at", { ascending: false });
+
+        setAttendanceLogs((attData as any) || []);
+
+        // 2. Fetch Pending Requests for assigned branches
+        const { data: reqData } = await supabase
+          .from("requests")
+          .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
+          .eq("company_id", profileData.company_id)
+          .eq("direction", "outgoing")
+          .eq("status", "pending")
+          .in("branch_id", branchIds)
+          .order("created_at", { ascending: false });
+
+        setRequests((reqData as any) || []);
+
+        // 3. If supervisor has employee approval permission, fetch pending staff and shift templates
+        if (parsedPermissions.can_approve_employees || profileData.role === "company_manager") {
+          const { data: pendingData } = await supabase
+            .from("profiles")
+            .select("*, branch:branch_id(id, name), shift_template:shift_template_id(id, name)")
+            .eq("company_id", profileData.company_id)
+            .eq("status", "pending")
+            .in("branch_id", branchIds)
+            .order("created_at", { ascending: false });
+
+          setPendingEmployees((pendingData as any) || []);
+
+          const { data: shiftsData } = await supabase
+            .from("shift_templates")
+            .select("id, name")
+            .eq("company_id", profileData.company_id)
+            .order("name", { ascending: true });
+
+          setShiftTemplates(shiftsData || []);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading supervisor portal:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+
+  // Handle Review Modal submission
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequest || !profile) return;
+    setActionLoading(true);
+
+    try {
+      const newStatus = reviewAction === "approve" ? "approved" : "rejected";
+
+      // 1. Update request status
+      const { error: reqErr } = await supabase
+        .from("requests")
+        .update({
+          status: newStatus,
+          reviewed_by: profile.id,
+          review_note: reviewNote.trim() || null,
+        })
+        .eq("id", selectedRequest.id);
+
+      if (reqErr) throw reqErr;
+
+      // 2. Auto-action if approved
+      if (newStatus === "approved") {
+        if (selectedRequest.type === "device_reset") {
+          await supabase
+            .from("profiles")
+            .update({ device_id: null })
+            .eq("id", selectedRequest.employee_id);
+        } else if (selectedRequest.type === "manual_edit") {
+          const payload = selectedRequest.payload || {};
+          const editDate = payload.date || new Date().toISOString().split("T")[0];
+          const checkIn = payload.check_in_at ? `${editDate}T${payload.check_in_at}:00` : null;
+          const checkOut = payload.check_out_at ? `${editDate}T${payload.check_out_at}:00` : null;
+
+          // Check if attendance log exists for this date
+          const { data: existingLog } = await supabase
+            .from("attendance_logs")
+            .select("id")
+            .eq("employee_id", selectedRequest.employee_id)
+            .eq("shift_date", editDate)
+            .maybeSingle();
+
+          if (existingLog) {
+            await supabase
+              .from("attendance_logs")
+              .update({
+                check_in_at: checkIn,
+                check_out_at: checkOut,
+                is_manual_edit: true,
+                edit_reason: payload.reason || "Approved by Branch Supervisor",
+                edited_by: profile.id,
+              })
+              .eq("id", existingLog.id);
+          } else {
+            await supabase.from("attendance_logs").insert({
+              company_id: profile.company_id,
+              branch_id: selectedRequest.branch_id,
+              employee_id: selectedRequest.employee_id,
+              shift_date: editDate,
+              check_in_at: checkIn,
+              check_out_at: checkOut,
+              is_manual_edit: true,
+              edit_reason: payload.reason || "Approved by Branch Supervisor",
+              edited_by: profile.id,
+              status: "present",
+            });
+          }
+        }
+      }
+
+      setReviewModalOpen(false);
+      setSelectedRequest(null);
+      setReviewNote("");
+      // Refresh data
+      loadSupervisorData();
+    } catch (err: any) {
+      alert("Error reviewing request: " + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handle employee approval with auto-opened assignment modal
+  const handleEmployeeApprove = async (emp: PendingEmployee) => {
+    setEmpActionLoading(emp.id);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ status: "active" })
+        .eq("id", emp.id);
+
+      if (error) throw error;
+      setPendingEmployees((prev) => prev.filter((item) => item.id !== emp.id));
+
+      // Auto-open assignment modal immediately!
+      setAssigningEmp(emp);
+      setAssignBranchId(emp.branch_id || (assignedBranches[0]?.id ?? ""));
+      setAssignShiftId(emp.shift_template_id || (shiftTemplates[0]?.id ?? ""));
+      setAssignJobTitle(emp.job_title || "");
+      setAssignModalOpen(true);
+    } catch (err: any) {
+      alert("Error approving employee: " + (err.message || err));
+    } finally {
+      setEmpActionLoading(null);
+    }
+  };
+
+  // Handle saving employee assignments from supervisor
+  const handleSaveAssignment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assigningEmp) return;
+    setAssignLoading(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          branch_id: assignBranchId || null,
+          shift_template_id: assignShiftId || null,
+          job_title: assignJobTitle.trim() || null,
+        })
+        .eq("id", assigningEmp.id);
+
+      if (error) throw error;
+      setAssignModalOpen(false);
+      setAssigningEmp(null);
+      loadSupervisorData();
+    } catch (err: any) {
+      alert("Error saving employee assignment: " + (err.message || err));
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  // Handle employee rejection
+  const handleEmployeeStatus = async (employeeId: string, newStatus: "active" | "suspended") => {
+    setEmpActionLoading(employeeId);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ status: newStatus })
+        .eq("id", employeeId);
+
+      if (error) throw error;
+      setPendingEmployees((prev) => prev.filter((emp) => emp.id !== employeeId));
+    } catch (err: any) {
+      alert("Error updating employee status: " + (err.message || err));
+    } finally {
+      setEmpActionLoading(null);
+    }
+  };
+
+  // Filter attendance logs
+  const filteredAttendance = attendanceLogs.filter((log) => {
+    const matchesBranch = branchFilter === "all" || log.branch_id === branchFilter;
+    const matchesSearch =
+      !searchQuery ||
+      log.employee?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.employee?.job_title?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesBranch && matchesSearch;
+  });
+
+  // Filter requests
+  const filteredRequests = requests.filter((req) => {
+    const matchesBranch = branchFilter === "all" || req.branch_id === branchFilter;
+    const matchesSearch =
+      !searchQuery ||
+      req.employee?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      req.employee?.job_title?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesBranch && matchesSearch;
+  });
+
+  // Filter pending employees
+  const filteredPendingEmployees = pendingEmployees.filter((emp) => {
+    const matchesBranch = branchFilter === "all" || emp.branch_id === branchFilter;
+    const matchesSearch =
+      !searchQuery ||
+      emp.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      emp.national_id?.includes(searchQuery);
+    return matchesBranch && matchesSearch;
+  });
+
+  const formatTime = (ts: string | null) => {
+    if (!ts) return "--:--";
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return ts;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white flex flex-col font-cairo">
+      {/* Top Navigation Bar */}
+      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3.5">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <YawmiLogo size="md" />
+            <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5" />
+                {t("supervisor_portal_title")}
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {profile?.full_name}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <ThemeToggle />
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t("logout")}</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
+            <p className="text-sm">{t("loading")}</p>
+          </div>
+        ) : assignedBranches.length === 0 ? (
+          <div className="p-8 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-center max-w-lg mx-auto my-12 shadow-sm">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200 dark:border-amber-900/60">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <h2 className="text-lg font-bold mb-2">{t("no_assigned_branches")}</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              يرجى التواصل مع مدير المنشأة لإسناد فروع شركتك إلى حسابك كمشرف فرع.
+            </p>
+            <button
+              onClick={loadSupervisorData}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition"
+            >
+              إعادة التحميل
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Supervisor Overview & Assigned Branches */}
+            <div className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-bold flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-indigo-600" />
+                    <span>{t("assigned_branches_title")}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold">
+                      {assignedBranches.length}
+                    </span>
+                  </h1>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    {t("supervisor_portal_subtitle")}
+                  </p>
+                </div>
+
+                {/* Supervisor Permissions Badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                      permissions.can_approve_employees
+                        ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 line-through opacity-60"
+                    }`}
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                    {t("supervisor_perm_approve")}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                      permissions.can_exceed_edit_limit
+                        ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 line-through opacity-60"
+                    }`}
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                    {t("supervisor_perm_edit_limit")}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                      permissions.can_close_month
+                        ? "bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 line-through opacity-60"
+                    }`}
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                    {t("supervisor_perm_close_month")}
+                  </span>
+                </div>
+              </div>
+
+              {/* Branch Cards Chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
+                {assignedBranches.map((br) => (
+                  <div
+                    key={br.id}
+                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 flex items-center justify-center shrink-0">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">{br.name}</div>
+                        <div className="text-[10px] text-slate-400">
+                          نطاق: {br.geofence_radius} م
+                        </div>
+                      </div>
+                    </div>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Navigation Tabs & Filter Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Tabs */}
+              <div className="flex items-center gap-1 p-1 bg-slate-200 dark:bg-slate-800/80 rounded-xl">
+                <button
+                  onClick={() => setActiveTab("attendance")}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeTab === "attendance"
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{t("supervisor_today_attendance")}</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600">
+                    {attendanceLogs.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("requests")}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeTab === "requests"
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <FileCheck2 className="w-3.5 h-3.5" />
+                  <span>{t("supervisor_pending_requests")}</span>
+                  {requests.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white">
+                      {requests.length}
+                    </span>
+                  )}
+                </button>
+
+                {permissions.can_approve_employees && (
+                  <button
+                    onClick={() => setActiveTab("approvals")}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeTab === "approvals"
+                        ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>اعتماد الموظفين</span>
+                    {pendingEmployees.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-white">
+                        {pendingEmployees.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-2">
+                {assignedBranches.length > 1 && (
+                  <select
+                    value={branchFilter}
+                    onChange={(e) => setBranchFilter(e.target.value)}
+                    className="h-9 px-3 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="all">جميع الفروع المسندة</option>
+                    {assignedBranches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 left-3 rtl:left-auto rtl:right-3 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="بحث بالاسم أو المسمى..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-9 pl-9 pr-3 rtl:pr-9 rtl:pl-3 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-60"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* TAB 1: Today's Live Attendance */}
+            {activeTab === "attendance" && (
+              <div className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      حضور اليوم: {new Date().toISOString().split("T")[0]}
+                    </span>
+                  </div>
+                  <button
+                    onClick={loadSupervisorData}
+                    className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                    title="تحديث"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {filteredAttendance.length === 0 ? (
+                  <div className="py-16 text-center text-slate-400 space-y-2">
+                    <Clock className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                    <p className="text-xs">لا يوجد تسجيل حضور حتى الآن لهذا اليوم في الفروع المحددة.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left rtl:text-right">
+                      <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="p-3">الموظف</th>
+                          <th className="p-3">الفرع</th>
+                          <th className="p-3">وقت الحضور</th>
+                          <th className="p-3">وقت الانصراف</th>
+                          <th className="p-3">التأخير</th>
+                          <th className="p-3">الإضافي</th>
+                          <th className="p-3">الحالة / الملاحظة</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                        {filteredAttendance.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-750/30">
+                            <td className="p-3">
+                              <div className="font-bold text-slate-900 dark:text-white">
+                                {log.employee?.full_name || "موظف"}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {log.employee?.job_title || "--"}
+                              </div>
+                            </td>
+                            <td className="p-3 text-slate-600 dark:text-slate-300">
+                              {log.branch?.name || "--"}
+                            </td>
+                            <td className="p-3 font-mono font-bold text-emerald-600">
+                              {formatTime(log.check_in_at)}
+                            </td>
+                            <td className="p-3 font-mono font-bold text-slate-600 dark:text-slate-400">
+                              {formatTime(log.check_out_at)}
+                            </td>
+                            <td className="p-3">
+                              {log.late_minutes > 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
+                                  {log.late_minutes} د
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">0</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {log.overtime_minutes > 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400">
+                                  {log.overtime_minutes} د
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">0</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {log.grace_period_applied && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                    فترة سماح
+                                  </span>
+                                )}
+                                {log.is_manual_edit && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                                    تعديل يدوي
+                                  </span>
+                                )}
+                                {!log.is_manual_edit && !log.grace_period_applied && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                    حاضر (GPS)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: Pending Requests for Assigned Branches */}
+            {activeTab === "requests" && (
+              <div className="space-y-3">
+                {filteredRequests.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <FileCheck2 className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                    <p className="text-xs">{t("no_requests_found")}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 shadow-sm flex flex-col justify-between space-y-3"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              {req.type === "leave" && t("req_type_leave")}
+                              {req.type === "permission" && t("req_type_permission")}
+                              {req.type === "manual_edit" && t("req_type_manual_edit")}
+                              {req.type === "shift_change" && t("req_type_shift_change")}
+                              {req.type === "device_reset" && t("req_type_device_reset")}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {new Date(req.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="text-sm font-bold text-slate-900 dark:text-white">
+                              {req.employee?.full_name}
+                            </div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                              <span>{req.employee?.job_title || "--"}</span>
+                              <span>•</span>
+                              <span>{req.branch?.name}</span>
+                            </div>
+                          </div>
+
+                          {/* Request Details Payload */}
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+                            {req.type === "leave" && (
+                              <p>
+                                <strong>الفترة:</strong> من {req.payload?.start_date} إلى {req.payload?.end_date}
+                              </p>
+                            )}
+                            {req.type === "permission" && (
+                              <p>
+                                <strong>التاريخ والوقت:</strong> {req.payload?.date} ({req.payload?.time})
+                              </p>
+                            )}
+                            {req.type === "manual_edit" && (
+                              <p>
+                                <strong>التعديل:</strong> {req.payload?.date} (حضور: {req.payload?.check_in_at || "--"} / انصراف: {req.payload?.check_out_at || "--"})
+                              </p>
+                            )}
+                            {req.type === "shift_change" && (
+                              <p>
+                                <strong>الشفت المطلوب:</strong> {req.payload?.requested_shift_name || "تغيير شفت"}
+                              </p>
+                            )}
+                            {req.type === "device_reset" && (
+                              <p>
+                                <strong>السبب:</strong> تغيير الهاتف الذكي / إعادة ربط الجهاز
+                              </p>
+                            )}
+                            {req.payload?.reason && (
+                              <p className="text-slate-500 dark:text-slate-400">
+                                <strong>المبرر:</strong> {req.payload.reason}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                          <button
+                            onClick={() => {
+                              setSelectedRequest(req);
+                              setReviewAction("approve");
+                              setReviewModalOpen(true);
+                            }}
+                            className="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center justify-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>موافقة</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedRequest(req);
+                              setReviewAction("reject");
+                              setReviewModalOpen(true);
+                            }}
+                            className="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-900 hover:bg-rose-100 transition flex items-center justify-center gap-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>رفض</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: Pending Employee Approvals */}
+            {activeTab === "approvals" && permissions.can_approve_employees && (
+              <div className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    الموظفون الجدد بانتظار الاعتماد لفروعك المسندة
+                  </h3>
+                </div>
+
+                {filteredPendingEmployees.length === 0 ? (
+                  <div className="py-16 text-center text-slate-400 space-y-2">
+                    <Users className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                    <p className="text-xs">لا يوجد موظفون معلقون بانتظار الاعتماد حالياً.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left rtl:text-right">
+                      <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="p-3">اسم الموظف</th>
+                          <th className="p-3">الهوية / الإقامة</th>
+                          <th className="p-3">الفرع</th>
+                          <th className="p-3">الشفت</th>
+                          <th className="p-3">الجوال</th>
+                          <th className="p-3 text-center">الإجراء</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                        {filteredPendingEmployees.map((emp) => (
+                          <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-750/30">
+                            <td className="p-3">
+                              <div className="font-bold text-slate-900 dark:text-white">
+                                {emp.full_name}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {emp.job_title || "--"} ({emp.nationality || "--"})
+                              </div>
+                            </td>
+                            <td className="p-3 font-mono">{emp.national_id || "--"}</td>
+                            <td className="p-3 text-slate-600 dark:text-slate-300">
+                              {emp.branch?.name || "--"}
+                            </td>
+                            <td className="p-3 text-slate-600 dark:text-slate-300">
+                              {emp.shift_template?.name || "--"}
+                            </td>
+                            <td className="p-3 font-mono">{emp.phone || "--"}</td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => handleEmployeeApprove(emp)}
+                                  disabled={empActionLoading === emp.id}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 disabled:opacity-50"
+                                >
+                                  {empActionLoading === emp.id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Check className="w-3 h-3" />
+                                  )}
+                                  <span>اعتماد وتعيين</span>
+                                </button>
+                                <button
+                                  onClick={() => handleEmployeeStatus(emp.id, "suspended")}
+                                  disabled={empActionLoading === emp.id}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-900 hover:bg-rose-100 transition flex items-center gap-1 disabled:opacity-50"
+                                >
+                                  <X className="w-3 h-3" />
+                                  <span>رفض</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Review Modal */}
+      {reviewModalOpen && selectedRequest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-5 border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                {reviewAction === "approve" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-rose-600" />
+                )}
+                <span>
+                  {reviewAction === "approve" ? "تأكيد اعتماد الطلب" : "تأكيد رفض الطلب"}
+                </span>
+              </h3>
+              <button
+                onClick={() => setReviewModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {reviewAction === "approve"
+                ? `أنت على وشك اعتماد طلب (${selectedRequest.type}) للموظف: ${selectedRequest.employee?.full_name}`
+                : `أنت على وشك رفض طلب (${selectedRequest.type}) للموظف: ${selectedRequest.employee?.full_name}`}
+            </p>
+
+            <form onSubmit={handleReviewSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  {t("review_note_label")}
+                </label>
+                <textarea
+                  value={reviewNote}
+                  onChange={(e) => setReviewNote(e.target.value)}
+                  placeholder="أدخل أي ملاحظات ترغب في إظهارها للموظف..."
+                  rows={3}
+                  className="w-full text-xs p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className={`flex-1 py-2 px-4 rounded-xl text-xs font-bold text-white transition flex items-center justify-center gap-1.5 ${
+                    reviewAction === "approve"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-rose-600 hover:bg-rose-700"
+                  } disabled:opacity-50`}
+                >
+                  {actionLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : reviewAction === "approve" ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <X className="w-3.5 h-3.5" />
+                  )}
+                  <span>{reviewAction === "approve" ? "اعتماد الطلب" : "رفض الطلب"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewModalOpen(false)}
+                  className="py-2 px-4 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition"
+                >
+                  {t("cancel")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Opened Employee Assignment Modal */}
+      {assignModalOpen && assigningEmp && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-5 border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>تم اعتماد الموظف — إتمام التعيين</span>
+              </h3>
+              <button
+                onClick={() => setAssignModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+              تم تنشيط حساب <strong>{assigningEmp.full_name}</strong> بنجاح. يمكنك الآن تعيين الفرع والشفت والمسمى الوظيفي مباشرة:
+            </div>
+
+            <form onSubmit={handleSaveAssignment} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  الفرع المسند *
+                </label>
+                <select
+                  required
+                  value={assignBranchId}
+                  onChange={(e) => setAssignBranchId(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                >
+                  {assignedBranches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  شفت الدوام
+                </label>
+                <select
+                  value={assignShiftId}
+                  onChange={(e) => setAssignShiftId(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                >
+                  <option value="">بدون شفت محدد</option>
+                  {shiftTemplates.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  المسمى الوظيفي
+                </label>
+                <input
+                  type="text"
+                  value={assignJobTitle}
+                  onChange={(e) => setAssignJobTitle(e.target.value)}
+                  placeholder="مثال: موظف استقبال، محاسب..."
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={assignLoading}
+                  className="flex-1 py-2 px-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
+                >
+                  {assignLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  <span>حفظ التعيين والبدء</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignModalOpen(false)}
+                  className="py-2 px-4 rounded-xl font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200 dark:border-slate-800">
+        يَومي | Yawmi Supervisor Portal
+      </footer>
+    </div>
+  );
+}

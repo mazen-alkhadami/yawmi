@@ -1,0 +1,8 @@
+sb_publishable_3qW-UpBi01LGKww6_0cSNg_LBmM5xxO
+
+anon public key
+
+-----------------------------------
+ https://ritnanbjluxqbttmoaxs.supabase.co/rest/v1/
+
+project api
