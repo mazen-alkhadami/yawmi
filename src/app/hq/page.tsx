@@ -488,10 +488,10 @@ export default function SuperAdminHQPage() {
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex items-center gap-1 p-1 bg-slate-200 dark:bg-slate-800 rounded-xl overflow-x-auto">
+              <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-xl overflow-x-auto whitespace-nowrap max-w-full">
                 <button
                   onClick={() => setActiveTab("overview")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 flex items-center gap-1.5 ${
                     activeTab === "overview"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -503,7 +503,7 @@ export default function SuperAdminHQPage() {
 
                 <button
                   onClick={() => setActiveTab("companies")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 flex items-center gap-1.5 ${
                     activeTab === "companies"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -518,7 +518,7 @@ export default function SuperAdminHQPage() {
 
                 <button
                   onClick={() => setActiveTab("upgrades")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 flex items-center gap-1.5 ${
                     activeTab === "upgrades"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -535,7 +535,7 @@ export default function SuperAdminHQPage() {
 
                 <button
                   onClick={() => setActiveTab("settings")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 flex items-center gap-1.5 ${
                     activeTab === "settings"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"

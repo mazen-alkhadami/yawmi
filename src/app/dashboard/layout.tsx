@@ -193,18 +193,20 @@ export default function DashboardLayout({
 
           <div className="flex items-center gap-2">
             <NotificationsBell companyId={company?.id} lang={language} />
-            <LanguageToggle />
-            <ThemeToggle />
+            <div className="hidden lg:flex items-center gap-2">
+              <LanguageToggle />
+              <ThemeToggle />
 
-            {/* Logout Button */}
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/50 transition shadow-sm"
-              title={t("logout")}
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{t("logout")}</span>
-            </button>
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/50 transition shadow-sm"
+                title={t("logout")}
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">{t("logout")}</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -267,9 +269,9 @@ export default function DashboardLayout({
               })}
             </nav>
 
-            {/* User Info Card in Sidebar Bottom */}
-            {profile && (
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-700/60 px-2">
+            {/* User Info Card & Mobile Controls in Sidebar Bottom */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700/60 px-2 space-y-3">
+              {profile && (
                 <div className="flex items-center gap-2.5">
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase border"
@@ -290,8 +292,23 @@ export default function DashboardLayout({
                     </span>
                   </div>
                 </div>
+              )}
+
+              {/* Mobile-only quick actions */}
+              <div className="lg:hidden pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <LanguageToggle />
+                  <ThemeToggle />
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/50 transition shadow-sm"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>{t("logout")}</span>
+                </button>
               </div>
-            )}
+            </div>
           </aside>
 
           {/* Main Content Area */}

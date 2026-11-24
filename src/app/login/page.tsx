@@ -20,6 +20,7 @@ import {
   User,
   Phone,
   Sparkles,
+  X,
 } from "lucide-react";
 
 export default function LoginPage() {
@@ -39,6 +40,46 @@ export default function LoginPage() {
   const [setupFullName, setSetupFullName] = useState("");
   const [setupPhone, setSetupPhone] = useState("");
   const [setupLoading, setSetupLoading] = useState(false);
+
+  // Forgot Password Modal State
+  const [forgotModalOpen, setForgotModalOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail.trim()) return;
+    setResetLoading(true);
+    setResetMessage(null);
+    try {
+      const redirectUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/reset-password`
+          : "/reset-password";
+
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) throw error;
+
+      setResetMessage({
+        type: "success",
+        text:
+          language === "ar"
+            ? "تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني بنجاح! يرجى فحص صندوق الوارد."
+            : "Password reset link sent to your email! Please check your inbox.",
+      });
+    } catch (err: any) {
+      setResetMessage({
+        type: "error",
+        text: err?.message || "فشل إرسال رابط الاستعادة.",
+      });
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const ArrowIcon = dir === "rtl" ? ArrowLeft : ArrowRight;
 
@@ -349,9 +390,22 @@ export default function LoginPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    {t("password_label")}
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {t("password_label")}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetEmail(email || "");
+                        setResetMessage(null);
+                        setForgotModalOpen(true);
+                      }}
+                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      {language === "ar" ? "نسيت كلمة المرور؟" : "Forgot Password?"}
+                    </button>
+                  </div>
                   <div className="relative">
                     <input
                       type="password"
@@ -408,6 +462,82 @@ export default function LoginPage() {
           )}
         </div>
       </main>
+
+      {/* Forgot Password Modal */}
+      {forgotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+              <span className="text-sm font-bold text-slate-900 dark:text-white">
+                {language === "ar" ? "استعادة كلمة المرور" : "Reset Password"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setForgotModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {resetMessage && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold border ${
+                  resetMessage.type === "success"
+                    ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                    : "bg-red-50 dark:bg-red-950/50 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800"
+                }`}
+              >
+                {resetMessage.text}
+              </div>
+            )}
+
+            <form onSubmit={handleResetPassword} className="space-y-3.5 text-xs">
+              <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
+                {language === "ar"
+                  ? "أدخل بريدك الإلكتروني المسجل وسنرسل لك رابطاً آمناً لتعيين كلمة مرور جديدة لحسابك."
+                  : "Enter your registered email and we will send you a secure link to set a new password."}
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  {t("email_label")}
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    placeholder={t("email_placeholder")}
+                    className="w-full px-3.5 py-2.5 ps-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500"
+                    dir="ltr"
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute start-3 top-3" />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForgotModalOpen(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700"
+                >
+                  {t("cancel")}
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-1.5 transition disabled:opacity-50"
+                >
+                  {resetLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{language === "ar" ? "إرسال الرابط" : "Send Reset Link"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="py-4 text-center text-xs text-slate-400 dark:text-slate-500">

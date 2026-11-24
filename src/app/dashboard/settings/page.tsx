@@ -551,7 +551,7 @@ export default function CompanySettingsPage() {
             </div>
 
             <a
-              href={`https://wa.me/?text=${encodeURIComponent(
+              href={`https://wa.me/967779628873?text=${encodeURIComponent(
                 `مرحباً فريق يومي، أود ترقية اشتراك منشأتنا (${company?.name || ""}) إلى باقة ${requestedPlan.toUpperCase()} (${billingCycle === "yearly" ? "سنوي" : "شهري"}). كود الشركة: ${company?.invite_code || ""}`
               )}`}
               target="_blank"

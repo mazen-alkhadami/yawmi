@@ -316,9 +316,17 @@ export default function UserGuidePage() {
               ? "مصمم ليتوافق مع أنظمة العمل وحماية البيانات الشخصية (PDPL) بالمملكة العربية السعودية واليمن والخليج العربي."
               : "Compliant with Saudi Labor Regulations and PDPL Data Protection Standards across GCC."}
           </p>
-          <p className="font-mono text-[10px] text-slate-400">
-            https://yawmi.app • support@yawmi.app
-          </p>
+          <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <span className="font-mono text-[11px] text-slate-400">https://yawmi.app</span>
+            <a
+              href="https://wa.me/967779628873"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold hover:bg-emerald-100 transition print:hidden"
+            >
+              <span>{language === "ar" ? "تواصل مع الدعم الفني عبر واتساب" : "Support on WhatsApp"}</span>
+            </a>
+          </div>
         </div>
       </main>
     </div>

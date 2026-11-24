@@ -106,6 +106,9 @@ export default function EmployeeApp() {
   // Flow State
   const [qrInput, setQrInput] = useState("");
   const [scannedToken, setScannedToken] = useState("");
+  const [isScanningQr, setIsScanningQr] = useState(false);
+  const [showManualQr, setShowManualQr] = useState(false);
+  const qrScannerRef = useRef<any>(null);
   const [gpsDistance, setGpsDistance] = useState<number | null>(null);
   const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
@@ -461,6 +464,8 @@ export default function EmployeeApp() {
     setStep("qr");
     setQrInput("");
     setScannedToken("");
+    setIsScanningQr(false);
+    setShowManualQr(false);
     setGpsDistance(null);
     setSelfieDataUrl(null);
     setFlowError(null);
@@ -468,22 +473,92 @@ export default function EmployeeApp() {
     setActionModalOpen(true);
   };
 
-  // Step 1: Validate QR Token
-  const handleValidateQr = async () => {
+  const stopQrScanner = async () => {
+    try {
+      if (qrScannerRef.current) {
+        if (qrScannerRef.current.isScanning) {
+          await qrScannerRef.current.stop();
+        }
+        await qrScannerRef.current.clear();
+        qrScannerRef.current = null;
+      }
+    } catch (e) {
+      console.warn("Error stopping QR scanner:", e);
+    }
+    setIsScanningQr(false);
+  };
+
+  const startQrScanner = async () => {
     setFlowError(null);
-    const token = qrInput.trim();
+    setIsScanningQr(true);
+
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      await stopQrScanner();
+      setIsScanningQr(true);
+
+      setTimeout(async () => {
+        try {
+          const readerElement = document.getElementById("yawmi-qr-reader");
+          if (!readerElement) return;
+
+          const scanner = new Html5Qrcode("yawmi-qr-reader");
+          qrScannerRef.current = scanner;
+
+          await scanner.start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 220, height: 220 },
+              aspectRatio: 1.0,
+            },
+            async (decodedText) => {
+              if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate(100);
+              }
+              setQrInput(decodedText);
+              await stopQrScanner();
+              handleValidateQr(decodedText);
+            },
+            () => {}
+          );
+        } catch (err: any) {
+          console.error("Camera scanner start error:", err);
+          setFlowError(
+            err?.message || "تعذر فتح الكاميرا لمسح الباركود. يرجى التأكد من منح صلاحية الكاميرا في المتصفح."
+          );
+          setIsScanningQr(false);
+        }
+      }, 150);
+    } catch (err: any) {
+      console.error("html5-qrcode load error:", err);
+      setFlowError("تعذر تشغيل ماسح الباركود.");
+      setIsScanningQr(false);
+    }
+  };
+
+  // Step 1: Validate QR Token (supports Dynamic Kiosk and Static Printable QR)
+  const handleValidateQr = async (directToken?: string) => {
+    setFlowError(null);
+    const token = (directToken || qrInput).trim();
     if (!token) {
-      setFlowError("يرجى إدخال أو مسح رمز الـ QR.");
+      setFlowError("يرجى فتح الكاميرا لمسح الباركود أو إدخال الكود يدوياً.");
       return;
     }
 
-    const verification = await verifyQrToken(token, branch.id, branch.qr_secret);
+    const verification = await verifyQrToken(
+      token,
+      branch.id,
+      branch.qr_secret,
+      branch.static_qr_token
+    );
     if (!verification.valid) {
       setFlowError(verification.reason || "رمز QR غير صالح أو منتهي الصلاحية.");
       return;
     }
 
     setScannedToken(token);
+    await stopQrScanner();
     // Move to GPS verification
     handleCheckGps();
   };
@@ -704,6 +779,7 @@ export default function EmployeeApp() {
   };
 
   const closeActionModal = () => {
+    stopQrScanner();
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((t) => t.stop());
@@ -1638,38 +1714,78 @@ export default function EmployeeApp() {
             {/* STEP 1: QR INPUT / SCAN */}
             {step === "qr" && (
               <div className="space-y-4 py-2">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto">
-                  <QrCode className="w-8 h-8" />
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto shadow-sm">
+                  <QrCode className="w-7 h-7" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    {t("scan_qr_prompt")}
+                    {actionType === "checkin" ? "مسح باركود تسجيل الحضور" : "مسح باركود تسجيل الانصراف"}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    أدخل كود الـ QR المعروض على شاشة كشك الفرع:
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    {branch?.name ? `فرع: ${branch.name}` : "وجّه الكاميرا نحو باركود الفرع الحي أو المطبوع"}
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={qrInput}
-                    onChange={(e) => setQrInput(e.target.value)}
-                    placeholder="YAWMI:branch-id:window:hash"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-center focus:ring-2 focus:ring-indigo-500"
-                    dir="ltr"
-                  />
-                  <p className="text-[11px] text-slate-400">
-                    {t("manual_token_input")}
-                  </p>
-                </div>
+                {/* Real Live Camera Viewport */}
+                {isScanningQr ? (
+                  <div className="space-y-3">
+                    <div className="relative w-full aspect-square max-w-[280px] mx-auto rounded-2xl overflow-hidden bg-black border-2 border-indigo-600 shadow-xl">
+                      <div id="yawmi-qr-reader" className="w-full h-full" />
+                      <div className="absolute inset-0 pointer-events-none border border-emerald-400/40 rounded-2xl flex items-center justify-center">
+                        <div className="w-48 h-48 border-2 border-emerald-400 border-dashed rounded-xl animate-pulse" />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={stopQrScanner}
+                      className="w-full py-2 px-3 rounded-xl font-bold text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
+                    >
+                      إيقاف الكاميرا
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={startQrScanner}
+                      className="w-full py-3.5 px-4 rounded-2xl font-bold text-sm bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2.5 transition active:scale-[0.98]"
+                    >
+                      <Camera className="w-5 h-5 text-indigo-200" />
+                      <span>فتح الكاميرا لمسح الباركود (Open Camera)</span>
+                    </button>
 
-                <button
-                  onClick={handleValidateQr}
-                  className="w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition"
-                >
-                  التحقق والمتابعة
-                </button>
+                    {/* Small Collapsible Manual Fallback */}
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowManualQr(!showManualQr)}
+                        className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline transition"
+                      >
+                        {showManualQr ? "إخفاء الإدخال اليدوي" : "إدخال الكود يدوياً (للاختبار والنسخ)"}
+                      </button>
+
+                      {showManualQr && (
+                        <div className="mt-2.5 space-y-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 animate-fade-in-up">
+                          <input
+                            type="text"
+                            value={qrInput}
+                            onChange={(e) => setQrInput(e.target.value)}
+                            placeholder="YAWMI:..."
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono text-center focus:ring-2 focus:ring-indigo-500"
+                            dir="ltr"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleValidateQr()}
+                            className="w-full py-2 px-3 rounded-xl font-bold text-xs bg-indigo-600 text-white hover:bg-indigo-700 transition"
+                          >
+                            التحقق اليدوي والمتابعة
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

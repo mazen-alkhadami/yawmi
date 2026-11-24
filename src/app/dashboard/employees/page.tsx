@@ -25,10 +25,12 @@ import {
   FileText,
   CheckSquare,
   Square,
+  KeyRound,
 } from "lucide-react";
 
 interface EmployeeProfile {
   id: string;
+  email?: string | null;
   full_name: string;
   national_id: string | null;
   nationality: string | null;
@@ -59,7 +61,7 @@ interface ShiftTemplate {
 
 export default function EmployeesManagementPage() {
   const { company } = useContext(CompanyDashboardContext);
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const supabase = createClient();
 
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
@@ -214,6 +216,33 @@ export default function EmployeesManagementPage() {
       await fetchData();
     } catch (err: any) {
       setActionMsg({ type: "error", text: err.message || "Failed to reset device binding." });
+    }
+  };
+
+  const handleSendPasswordReset = async (empEmail?: string | null) => {
+    if (!empEmail) {
+      setActionMsg({
+        type: "error",
+        text: language === "ar" ? "لا يوجد بريد إلكتروني مسجل لهذا الموظف." : "No email registered for this employee.",
+      });
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(empEmail, {
+        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
+      });
+      if (error) throw error;
+      setActionMsg({
+        type: "success",
+        text: language === "ar"
+          ? `تم إرسال رابط استعادة كلمة المرور بنجاح إلى (${empEmail})!`
+          : `Password reset link sent successfully to (${empEmail})!`,
+      });
+    } catch (err: any) {
+      setActionMsg({
+        type: "error",
+        text: err?.message || (language === "ar" ? "فشل إرسال رابط استعادة كلمة المرور." : "Failed to send reset link."),
+      });
     }
   };
 
@@ -486,6 +515,9 @@ export default function EmployeesManagementPage() {
                           <span className="text-[11px] text-slate-400 block">
                             {emp.job_title || "موظف"} &bull; {emp.phone || "بدون هاتف"}
                           </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono block">
+                            {emp.email || "—"}
+                          </span>
                           {emp.national_id && (
                             <span className="text-[10px] text-slate-400 font-mono block">
                               هوية: {emp.national_id}
@@ -618,6 +650,13 @@ export default function EmployeesManagementPage() {
                               ) : (
                                 <UserX className="w-3.5 h-3.5" />
                               )}
+                            </button>
+                            <button
+                              onClick={() => handleSendPasswordReset(emp.email)}
+                              className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+                              title={language === "ar" ? "إرسال رابط استعادة كلمة المرور" : "Send password reset link"}
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
                             </button>
                           </>
                         )}
