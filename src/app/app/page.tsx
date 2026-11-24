@@ -939,17 +939,21 @@ export default function EmployeeApp() {
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-cairo select-none pb-20">
       {/* Top Mobile Bar */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between shadow-sm">
         <YawmiLogo size="sm" showText={true} />
         <div className="flex items-center gap-2">
-          <LanguageToggle />
           <ThemeToggle />
           <button
-            onClick={handleLogout}
-            className="p-1.5 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 text-rose-600 transition"
-            title={t("logout")}
+            onClick={() => setActiveTab("profile")}
+            className="flex items-center gap-1.5 p-1 pe-2 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            title={profile?.full_name || t("app_tab_profile")}
           >
-            <LogOut className="w-4 h-4" />
+            <div className="w-6 h-6 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
+              {profile?.full_name?.charAt(0) || "U"}
+            </div>
+            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 max-w-[80px] truncate hidden sm:inline">
+              {profile?.full_name?.split(" ")[0]}
+            </span>
           </button>
         </div>
       </header>

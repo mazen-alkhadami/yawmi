@@ -447,62 +447,77 @@ export default function MarketingLandingPage() {
             <div
               className={`fixed inset-y-0 ${
                 dir === "rtl" ? "right-0" : "left-0"
-              } w-[82%] max-w-sm bg-white dark:bg-slate-900 border-x border-slate-200 dark:border-slate-800 p-6 flex flex-col justify-between shadow-2xl z-10 transition-transform`}
+              } w-[85%] max-w-sm bg-white dark:bg-slate-900 border-x border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-5 overflow-y-auto shadow-2xl z-10 transition-transform`}
             >
-              <div className="space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-                  <YawmiLogo size="md" showText={true} />
-                  <button
-                    onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                    aria-label="Close menu"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+              {/* Header: Logo & Close */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <YawmiLogo size="md" showText={true} />
+                <button
+                  onClick={() => setMobileDrawerOpen(false)}
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  aria-label="Close menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-                {/* Nav Links */}
-                <nav className="flex flex-col space-y-2 font-semibold text-sm">
+              {/* Section 1: Navigation Links */}
+              <div className="space-y-1.5 shrink-0">
+                <div className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {language === "ar" ? "أقسام المنصة" : "Navigation"}
+                </div>
+                <nav className="flex flex-col space-y-1 font-semibold text-sm">
                   <a
                     href="#features"
                     onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-700 dark:text-slate-200"
+                    className="flex items-center justify-between p-2.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                   >
-                    {language === "ar" ? "المميزات" : "Features"}
+                    <span>{language === "ar" ? "المميزات الذكية" : "Features"}</span>
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
                   </a>
                   <a
                     href="#mockup"
                     onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-700 dark:text-slate-200"
+                    className="flex items-center justify-between p-2.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                   >
-                    {language === "ar" ? "كيف يعمل؟" : "How it Works"}
+                    <span>{language === "ar" ? "كيف يعمل النظام؟" : "How it Works"}</span>
+                    <QrCode className="w-4 h-4 text-emerald-500" />
                   </a>
                   <a
                     href="#pricing"
                     onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-700 dark:text-slate-200"
+                    className="flex items-center justify-between p-2.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                   >
-                    {language === "ar" ? "الأسعار" : "Pricing"}
+                    <span>{language === "ar" ? "باقات الأسعار" : "Pricing Plans"}</span>
+                    <Award className="w-4 h-4 text-amber-500" />
                   </a>
                   <Link
                     href="/guide"
                     onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-700 dark:text-slate-200"
+                    className="flex items-center justify-between p-2.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                   >
-                    {language === "ar" ? "دليل الاستخدام (PDF)" : "User Guide (PDF)"}
+                    <span>{language === "ar" ? "دليل الاستخدام (PDF)" : "User Guide (PDF)"}</span>
+                    <FileText className="w-4 h-4 text-teal-500" />
                   </Link>
                   <a
                     href="#contact"
                     onClick={() => setMobileDrawerOpen(false)}
-                    className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-700 dark:text-slate-200"
+                    className="flex items-center justify-between p-2.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                   >
-                    {language === "ar" ? "تواصل معنا" : "Contact"}
+                    <span>{language === "ar" ? "طلب استشارة للمنشآت" : "Contact Sales"}</span>
+                    <MessageCircle className="w-4 h-4 text-purple-500" />
                   </a>
                 </nav>
+              </div>
 
-                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500">
-                    {language === "ar" ? "المظهر واللغة" : "Theme & Language"}
+              {/* Section 2: Preferences (Language & Theme) */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shrink-0 space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {language === "ar" ? "تخصيص العرض واللغة" : "Preferences"}
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {language === "ar" ? "اللغة والمظهر" : "Language & Theme"}
                   </span>
                   <div className="flex items-center gap-2">
                     <LanguageToggle />
@@ -511,15 +526,19 @@ export default function MarketingLandingPage() {
                 </div>
               </div>
 
-              {/* Action Buttons in Drawer Bottom */}
-              <div className="space-y-2.5 pt-6 border-t border-slate-200 dark:border-slate-800">
+              {/* Section 3: Auth & Portal Access */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {language === "ar" ? "تسجيل الدخول والبدء" : "Account & Onboarding"}
+                </div>
+
                 <Link
                   href="/register"
                   onClick={() => setMobileDrawerOpen(false)}
                   className="w-full h-11 flex items-center justify-center gap-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md text-sm transition"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{language === "ar" ? "ابدأ مجاناً" : "Start Free"}</span>
+                  <span>{language === "ar" ? "تسجيل شركة جديدة مجاناً" : "Start Free Company"}</span>
                 </Link>
 
                 <Link
@@ -534,11 +553,22 @@ export default function MarketingLandingPage() {
                 <Link
                   href="/join"
                   onClick={() => setMobileDrawerOpen(false)}
-                  className="w-full h-11 flex items-center justify-center gap-2 rounded-xl font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs transition"
+                  className="w-full h-11 flex items-center justify-center gap-2 rounded-xl font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs transition"
                 >
                   <Building2 className="w-3.5 h-3.5" />
-                  <span>{language === "ar" ? "انضمام بكود الشركة" : "Join by Company Code"}</span>
+                  <span>{language === "ar" ? "انضمام موظف بكود الشركة" : "Join by Company Code"}</span>
                 </Link>
+
+                {/* Direct WhatsApp Contact in Drawer */}
+                <a
+                  href="https://wa.me/967779628873"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full h-10 flex items-center justify-center gap-2 rounded-xl font-bold bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs transition"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>{language === "ar" ? "تواصل مع الدعم عبر واتساب" : "WhatsApp Support"}</span>
+                </a>
               </div>
             </div>
           </div>
