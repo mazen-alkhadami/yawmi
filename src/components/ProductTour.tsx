@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
   X,
@@ -44,10 +44,15 @@ export function ProductTour({
   const { dir, language } = useLanguage();
   const [currentStep, setCurrentStep] = useState(0);
   const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const step = steps[currentStep];
 
-  const updateSpotlight = useCallback(() => {
+  const measureTarget = useCallback((shouldScroll: boolean) => {
+    if (typeof window === "undefined") return;
+    setViewport({ width: window.innerWidth, height: window.innerHeight });
+
     if (!isOpen || !step?.targetId) {
       setRect(null);
       return;
@@ -59,25 +64,38 @@ export function ProductTour({
       return;
     }
 
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const initialRect = el.getBoundingClientRect();
+    if (
+      shouldScroll &&
+      (initialRect.top < 72 || initialRect.bottom > window.innerHeight - 72)
+    ) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
 
-    const measure = () => {
+    const applyMeasure = () => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) {
         setRect(null);
         return;
       }
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
       setRect({
-        top: r.top - 6,
-        left: r.left - 6,
+        top: Math.max(4, r.top - 6),
+        left: Math.max(4, r.left - 6),
         width: r.width + 12,
         height: r.height + 12,
       });
     };
 
-    measure();
-    const timer = setTimeout(measure, 250);
-    return () => clearTimeout(timer);
+    applyMeasure();
+    if (shouldScroll) {
+      const t1 = setTimeout(applyMeasure, 180);
+      const t2 = setTimeout(applyMeasure, 380);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
   }, [isOpen, step]);
 
   useEffect(() => {
@@ -91,19 +109,25 @@ export function ProductTour({
       step.onEnter();
     }
 
-    const timer = setTimeout(() => {
-      updateSpotlight();
+    let cleanupMeasure: (() => void) | undefined;
+    const initTimer = setTimeout(() => {
+      cleanupMeasure = measureTarget(true);
     }, 80);
 
-    window.addEventListener("resize", updateSpotlight);
-    window.addEventListener("scroll", updateSpotlight, true);
+    const handleViewportChange = () => {
+      measureTarget(false);
+    };
+
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
 
     return () => {
-      clearTimeout(timer);
-      window.removeEventListener("resize", updateSpotlight);
-      window.removeEventListener("scroll", updateSpotlight, true);
+      clearTimeout(initTimer);
+      if (cleanupMeasure) cleanupMeasure();
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
     };
-  }, [isOpen, currentStep, step, updateSpotlight]);
+  }, [isOpen, currentStep, step, measureTarget]);
 
   if (!isOpen || !step || steps.length === 0) return null;
 
@@ -127,6 +151,48 @@ export function ProductTour({
     }
   };
 
+  // Compute smart tooltip positioning (auto-flip above/below + horizontal clamping)
+  const PAD = 16;
+  const vw = viewport.width || (typeof window !== "undefined" ? window.innerWidth : 390);
+  const vh = viewport.height || (typeof window !== "undefined" ? window.innerHeight : 844);
+  const cardWidth = Math.min(384, Math.max(260, vw - PAD * 2));
+
+  let cardStyle: React.CSSProperties | undefined;
+  let placement: "top" | "bottom" | "center" = "center";
+
+  if (rect && vw > 0 && vh > 0) {
+    const targetCenterY = rect.top + rect.height / 2;
+    const targetCenterX = rect.left + rect.width / 2;
+    const isLowerHalf = targetCenterY > vh / 2;
+
+    const desiredLeft = targetCenterX - cardWidth / 2;
+    const clampedLeft = Math.max(PAD, Math.min(desiredLeft, vw - cardWidth - PAD));
+
+    if (isLowerHalf) {
+      placement = "top";
+      const bottomOffset = Math.max(PAD, vh - rect.top + PAD);
+      const availableAbove = Math.max(180, vh - bottomOffset - PAD);
+      cardStyle = {
+        position: "fixed",
+        left: clampedLeft,
+        width: cardWidth,
+        bottom: bottomOffset,
+        maxHeight: availableAbove,
+      };
+    } else {
+      placement = "bottom";
+      const topOffset = Math.max(PAD, rect.top + rect.height + PAD);
+      const availableBelow = Math.max(180, vh - topOffset - PAD);
+      cardStyle = {
+        position: "fixed",
+        left: clampedLeft,
+        width: cardWidth,
+        top: topOffset,
+        maxHeight: availableBelow,
+      };
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[120] font-cairo"
@@ -136,15 +202,23 @@ export function ProductTour({
     >
       {/* Dimmed Overlay / Spotlight Cutout */}
       {rect ? (
-        <div
-          className="fixed rounded-2xl pointer-events-none transition-all duration-300 ease-out border-2 border-indigo-400 shadow-[0_0_0_9999px_rgba(2,6,23,0.72)]"
-          style={{
-            top: Math.max(4, rect.top),
-            left: Math.max(4, rect.left),
-            width: rect.width,
-            height: rect.height,
-          }}
-        />
+        <>
+          {/* Clickable backdrop layer behind spotlight */}
+          <div
+            className="fixed inset-0 bg-transparent"
+            onClick={onSkip}
+            aria-hidden="true"
+          />
+          <div
+            className="fixed rounded-2xl pointer-events-none transition-all duration-300 ease-out border-2 border-indigo-400 shadow-[0_0_0_9999px_rgba(2,6,23,0.74)]"
+            style={{
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height,
+            }}
+          />
+        </>
       ) : (
         <div
           className="fixed inset-0 bg-slate-950/75 backdrop-blur-[2px] transition-opacity"
@@ -152,10 +226,19 @@ export function ProductTour({
         />
       )}
 
-      {/* Click-blocker outside card */}
-      <div className="fixed inset-0 flex items-end sm:items-center justify-center p-4 pointer-events-none">
+      {/* Tooltip Card (Positioned dynamically above/below target, or centered when no target) */}
+      <div
+        className={
+          rect
+            ? "fixed inset-0 pointer-events-none z-10"
+            : "fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-10"
+        }
+      >
         <div
-          className="pointer-events-auto w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4 animate-fade-in-up"
+          ref={cardRef}
+          data-tour-placement={placement}
+          style={cardStyle}
+          className="pointer-events-auto w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4 overflow-y-auto transition-all duration-200 ease-out"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Row: Step Counter + Skip */}
