@@ -130,6 +130,7 @@ export default function EmployeeApp() {
   const [cameraActive, setCameraActive] = useState(false);
 
   // Quick Unlock (6-Digit PIN & Biometrics)
+  const [lockChecked, setLockChecked] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [quickSettings, setQuickSettings] = useState<QuickUnlockSettings>({
     pinEnabled: false,
@@ -330,6 +331,15 @@ export default function EmployeeApp() {
       if (cached.historyLogs) setHistoryLogs(cached.historyLogs);
       if (cached.outgoingRequests) setOutgoingRequests(cached.outgoingRequests);
       if (cached.incomingRequests) setIncomingRequests(cached.incomingRequests);
+
+      if (cached.user?.id) {
+        const cachedUnlock = getQuickUnlockSettings(cached.user.id);
+        setQuickSettings(cachedUnlock);
+        if ((cachedUnlock.pinEnabled || cachedUnlock.biometricEnabled) && !isSessionUnlocked(cached.user.id)) {
+          setIsLocked(true);
+        }
+      }
+      setLockChecked(true);
       setLoading(false);
     } else {
       setLoading(true);
@@ -486,8 +496,10 @@ export default function EmployeeApp() {
       ) {
         setTourOpen(true);
       }
+      setLockChecked(true);
     } catch (err) {
       console.error("Employee app load error:", err);
+      setLockChecked(true);
     } finally {
       setLoading(false);
     }
@@ -1215,15 +1227,47 @@ export default function EmployeeApp() {
     }
   };
 
+  if (!lockChecked) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 font-cairo select-none">
+        <div className="flex flex-col items-center gap-4 animate-pulse">
+          <YawmiLogo size="md" showText={true} />
+          <div className="px-4 py-2 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 text-center">
+            <p className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+              {language === "ar"
+                ? "منصة يومي الذكية لإدارة الحضور والانصراف"
+                : "Yawmi Smart Attendance & Workforce Platform"}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLocked) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col justify-between p-6 font-cairo select-none">
-        {/* Top Bar with Language and Theme */}
-        <div className="flex items-center justify-between w-full max-w-sm mx-auto">
-          <YawmiLogo size="sm" showText={true} />
-          <div className="flex items-center gap-2">
-            <LanguageToggle />
-            <ThemeToggle />
+        {/* Top Bar with Language, Theme, and Branded Info Bar */}
+        <div className="w-full max-w-sm mx-auto space-y-3">
+          <div className="flex items-center justify-between">
+            <YawmiLogo size="sm" showText={true} />
+            <div className="flex items-center gap-2">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
+          </div>
+
+          <div className="px-3.5 py-2 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 text-center">
+            <p className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+              {language === "ar"
+                ? "منصة يومي الذكية لإدارة الحضور والانصراف"
+                : "Yawmi Smart Attendance & Workforce Platform"}
+            </p>
+            {branch?.name && (
+              <p className="text-[10px] text-indigo-500 dark:text-indigo-400 mt-0.5">
+                {branch.name}
+              </p>
+            )}
           </div>
         </div>
 

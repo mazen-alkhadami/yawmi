@@ -278,6 +278,38 @@ export default function RequestsCenterPage() {
         }
       }
 
+      // 2b. Auto-Action on leave Approval: deduct requested days from profiles.annual_leave_balance (>= 0)
+      if (isApproved && selectedRequest.type === "leave") {
+        const payload = selectedRequest.payload || {};
+        const startStr = payload.start_date;
+        const endStr = payload.end_date || startStr;
+        let daysToDeduct = 1;
+
+        if (startStr && endStr) {
+          const startMs = new Date(startStr).getTime();
+          const endMs = new Date(endStr).getTime();
+          if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
+            daysToDeduct = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
+          }
+        }
+
+        const { data: empProf } = await supabase
+          .from("profiles")
+          .select("annual_leave_balance")
+          .eq("id", selectedRequest.employee_id)
+          .maybeSingle();
+
+        const currentBal =
+          typeof empProf?.annual_leave_balance === "number" ? empProf.annual_leave_balance : 21;
+        const nextBal = Math.max(0, currentBal - daysToDeduct);
+
+        await supabase
+          .from("profiles")
+          .update({ annual_leave_balance: nextBal })
+          .eq("id", selectedRequest.employee_id)
+          .eq("company_id", company.id);
+      }
+
       // 3. Update the request status
       const { error: reqUpdateErr } = await supabase
         .from("requests")

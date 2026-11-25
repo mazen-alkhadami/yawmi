@@ -9,6 +9,7 @@ import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { ProductTour, TourStep } from "@/components/ProductTour";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import {
   LayoutDashboard,
@@ -22,6 +23,7 @@ import {
   Menu,
   X,
   Building2,
+  HelpCircle,
 } from "lucide-react";
 
 export interface CompanyContextData {
@@ -74,6 +76,7 @@ export default function DashboardLayout({
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
+  const [adminTourOpen, setAdminTourOpen] = useState(false);
 
   const fetchSessionAndCompany = async () => {
     const cached = getCachedData<{ profile: any; company: any }>("dashboard_layout");
@@ -103,7 +106,7 @@ export default function DashboardLayout({
       const { data: prof, error: profErr } = await supabase
         .from("profiles")
         .select(`
-          id, full_name, role, company_id, status,
+          id, full_name, role, company_id, status, has_completed_tour,
           companies:company_id (
             id, name, invite_code, plan, max_branches, max_employees, status, subscription_ends_at, primary_color
           )
@@ -121,6 +124,14 @@ export default function DashboardLayout({
       const compData = (prof as any).companies || null;
       setCompany(compData);
       setCachedData("dashboard_layout", { profile: prof, company: compData });
+
+      if (
+        !prof.has_completed_tour &&
+        typeof window !== "undefined" &&
+        !localStorage.getItem(`yawmi_admin_tour_done_${prof.id}`)
+      ) {
+        setAdminTourOpen(true);
+      }
     } catch (err) {
       console.error("Dashboard layout error:", err);
     } finally {
@@ -146,14 +157,80 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
+  const handleCompleteAdminTour = async () => {
+    setAdminTourOpen(false);
+    if (profile?.id) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`yawmi_admin_tour_done_${profile.id}`, "1");
+      }
+      try {
+        await supabase
+          .from("profiles")
+          .update({ has_completed_tour: true })
+          .eq("id", profile.id);
+        setProfile((prev: any) => (prev ? { ...prev, has_completed_tour: true } : prev));
+      } catch (err) {
+        console.error("Error updating admin tour status:", err);
+      }
+    }
+  };
+
   const navItems = [
-    { href: "/dashboard", label: t("nav_overview"), icon: LayoutDashboard },
-    { href: "/dashboard/branches", label: t("nav_branches"), icon: MapPin },
-    { href: "/dashboard/shifts", label: t("nav_shifts"), icon: CalendarClock },
-    { href: "/dashboard/employees", label: t("nav_employees"), icon: Users },
-    { href: "/dashboard/requests", label: t("nav_requests"), icon: FileCheck2 },
-    { href: "/dashboard/reports", label: t("nav_reports"), icon: FileBarChart2 },
-    { href: "/dashboard/settings", label: t("nav_settings"), icon: Settings },
+    { href: "/dashboard", label: t("nav_overview"), icon: LayoutDashboard, tourId: "tour-nav-overview" },
+    { href: "/dashboard/branches", label: t("nav_branches"), icon: MapPin, tourId: "tour-nav-branches" },
+    { href: "/dashboard/shifts", label: t("nav_shifts"), icon: CalendarClock, tourId: "tour-nav-shifts" },
+    { href: "/dashboard/employees", label: t("nav_employees"), icon: Users, tourId: "tour-nav-employees" },
+    { href: "/dashboard/requests", label: t("nav_requests"), icon: FileCheck2, tourId: "tour-nav-requests" },
+    { href: "/dashboard/reports", label: t("nav_reports"), icon: FileBarChart2, tourId: "tour-nav-reports" },
+    { href: "/dashboard/settings", label: t("nav_settings"), icon: Settings, tourId: "tour-nav-settings" },
+  ];
+
+  const adminTourSteps: TourStep[] = [
+    {
+      id: "admin-overview",
+      targetId: pathname === "/dashboard" ? "tour-admin-overview" : undefined,
+      titleAr: "لوحة المؤشرات العامة والتعميمات",
+      titleEn: "Overview KPIs & Announcements",
+      descAr: "تابع أعداد الفروع والموظفين والورديات وكود دعوة الشركة، وانشر التعميمات الفورية لتصل إلى تطبيقات جميع الموظفين.",
+      descEn: "Monitor branches, employees, shifts, company invite code, and publish instant announcements to all staff.",
+      icon: <LayoutDashboard className="w-5 h-5" />,
+    },
+    {
+      id: "admin-branches",
+      targetId: "tour-nav-branches",
+      titleAr: "الفروع والباركود المزدوج والسيلفي",
+      titleEn: "Branches, Dual QR & Selfie",
+      descAr: "أضف فروعك وحدد السياج الجغرافي (GPS)، واختر بين الكشك الحي المتجدد كل 60 ثانية أو الباركود الثابت للطباعة، مع خيار السيلفي الإلزامي.",
+      descEn: "Set branch GPS geofences, choose between 60s Dynamic Kiosk or Static Printable QR, and toggle mandatory selfie.",
+      icon: <MapPin className="w-5 h-5" />,
+    },
+    {
+      id: "admin-employees",
+      targetId: "tour-nav-employees",
+      titleAr: "إدارة الموظفين واستعادة كلمة المرور",
+      titleEn: "Employees & Password Reset",
+      descAr: "اعتمد الموظفين الجدد، عيّن الفروع والورديات والصلاحيات، وأرسل روابط استعادة كلمة المرور أو فك ربط الجهاز بنقرة واحدة.",
+      descEn: "Approve new hires, assign branches and shifts, and trigger password reset links or device resets in one click.",
+      icon: <Users className="w-5 h-5" />,
+    },
+    {
+      id: "admin-requests",
+      targetId: "tour-nav-requests",
+      titleAr: "الطلبات وخصم رصيد الإجازات",
+      titleEn: "Requests & Leave Balance Deduction",
+      descAr: "راجع طلبات الإجازات والاستئذان والتعديلات اليدوية؛ وعند قبول الإجازة يتم خصم أيامها تلقائياً من رصيد الموظف السنوي.",
+      descEn: "Review leave, permission, and manual edits; approving annual leave automatically deducts days from the employee balance.",
+      icon: <FileCheck2 className="w-5 h-5" />,
+    },
+    {
+      id: "admin-reports",
+      targetId: "tour-nav-reports",
+      titleAr: "التقارير الشهرية وإغلاق الشهر",
+      titleEn: "Monthly Reports & Closing",
+      descAr: "صدّر كشوف الحضور والتأخير والإضافي بصيغة Excel (UTF-8) وPDF، وأغلق الشهر لحماية السجلات من أي تعديل.",
+      descEn: "Export attendance, late minutes, and overtime to Excel (UTF-8) or PDF, and lock the month for payroll audit.",
+      icon: <FileBarChart2 className="w-5 h-5" />,
+    },
   ];
 
   const brandColor = company?.primary_color || "#4F46E5";
@@ -208,6 +285,17 @@ export default function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Admin Tour Replay Button */}
+            <button
+              type="button"
+              onClick={() => setAdminTourOpen(true)}
+              className="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
+              title={language === "ar" ? "جولة تعريفية بلوحة الإدارة" : "Admin Dashboard Tour"}
+              aria-label={language === "ar" ? "جولة تعريفية بلوحة الإدارة" : "Admin Dashboard Tour"}
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+
             <NotificationsBell companyId={company?.id} lang={language} />
             <div className="hidden lg:flex items-center gap-2">
               <LanguageToggle />
@@ -258,6 +346,7 @@ export default function DashboardLayout({
                 return (
                   <Link
                     key={item.href}
+                    id={item.tourId}
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
                     style={
@@ -333,6 +422,14 @@ export default function DashboardLayout({
           </main>
         </div>
       </div>
+
+      {/* Interactive Admin Product Tour */}
+      <ProductTour
+        isOpen={adminTourOpen}
+        steps={adminTourSteps}
+        onComplete={handleCompleteAdminTour}
+        onSkip={handleCompleteAdminTour}
+      />
     </CompanyDashboardContext.Provider>
   );
 }
