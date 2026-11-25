@@ -631,6 +631,130 @@ export default function EmployeeApp() {
     }
   };
 
+  const syncAnnouncementsInCache = (nextAnnouncements: any[], nextOutReqs?: any[]) => {
+    const cached = getCachedData<any>("employee_app");
+    if (cached) {
+      setCachedData("employee_app", {
+        ...cached,
+        announcements: nextAnnouncements,
+        ...(nextOutReqs ? { outgoingRequests: nextOutReqs } : {}),
+      });
+    }
+  };
+
+  const refreshFeedSilently = async () => {
+    if (!profile?.company_id || !user?.id) return;
+    try {
+      const [annRes, outReqsRes] = await Promise.all([
+        supabase
+          .from("announcements")
+          .select("*")
+          .eq("company_id", profile.company_id)
+          .order("created_at", { ascending: false })
+          .limit(15),
+        supabase
+          .from("requests")
+          .select("*")
+          .eq("employee_id", user.id)
+          .eq("direction", "outgoing")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      const filteredAnns = (annRes.data || []).filter(
+        (ann: any) => !ann.branch_id || ann.branch_id === profile.branch_id
+      );
+      const nextOutReqs = outReqsRes.data || [];
+
+      setAnnouncements(filteredAnns);
+      setOutgoingRequests(nextOutReqs);
+      syncAnnouncementsInCache(filteredAnns, nextOutReqs);
+
+      if (typeof window !== "undefined") {
+        const lastSeenStr = localStorage.getItem(`yawmi_feed_seen_${user.id}`);
+        const lastSeenTime = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
+        const feedItems = buildEmployeeFeedNotifications(filteredAnns, nextOutReqs, language);
+        const unreadCount = feedItems.filter(
+          (item) => new Date(item.timestamp).getTime() > lastSeenTime
+        ).length;
+        setUnreadFeedCount(unreadCount);
+      }
+    } catch (err) {
+      console.error("Silent feed refresh error:", err);
+    }
+  };
+
+  // Real-time Announcements Subscription (< 1s delivery) + Visibility Re-fetch
+  useEffect(() => {
+    if (!profile?.company_id || !user?.id) return;
+
+    const channel = supabase
+      .channel(`employee_announcements_${profile.company_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "announcements",
+          filter: `company_id=eq.${profile.company_id}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const newAnn = payload.new as any;
+            if (!newAnn.branch_id || newAnn.branch_id === profile.branch_id) {
+              setAnnouncements((prev) => {
+                if (prev.some((a) => a.id === newAnn.id)) return prev;
+                const updated = [newAnn, ...prev];
+                syncAnnouncementsInCache(updated);
+                return updated;
+              });
+              setUnreadFeedCount((prev) => prev + 1);
+            }
+          } else if (payload.eventType === "UPDATE") {
+            const updatedAnn = payload.new as any;
+            setAnnouncements((prev) => {
+              const exists = prev.some((a) => a.id === updatedAnn.id);
+              const isVisible = !updatedAnn.branch_id || updatedAnn.branch_id === profile.branch_id;
+              let nextList = prev;
+              if (exists && isVisible) {
+                nextList = prev.map((a) => (a.id === updatedAnn.id ? updatedAnn : a));
+              } else if (exists && !isVisible) {
+                nextList = prev.filter((a) => a.id !== updatedAnn.id);
+              } else if (!exists && isVisible) {
+                nextList = [updatedAnn, ...prev];
+              }
+              syncAnnouncementsInCache(nextList);
+              return nextList;
+            });
+          } else if (payload.eventType === "DELETE") {
+            const deletedId = (payload.old as any)?.id;
+            if (deletedId) {
+              setAnnouncements((prev) => {
+                const nextList = prev.filter((a) => a.id !== deletedId);
+                syncAnnouncementsInCache(nextList);
+                return nextList;
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        refreshFeedSilently();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
+    return () => {
+      supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+    };
+  }, [profile?.company_id, profile?.branch_id, user?.id]);
+
   const handleOpenFeed = () => {
     setFeedDrawerOpen(true);
     setUnreadFeedCount(0);
