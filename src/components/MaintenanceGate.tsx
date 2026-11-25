@@ -6,52 +6,118 @@ import { createClient } from "@/lib/supabase/client";
 import { usePlatformContact } from "@/lib/usePlatformContact";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { YawmiLogo } from "@/components/yawmi-logo";
-import { Wrench, MessageCircle, Mail } from "lucide-react";
+import { Wrench, MessageCircle, Mail, Loader2 } from "lucide-react";
 
-const EXEMPT_PREFIXES = ["/hq", "/login", "/reset-password"];
+const GATED_PREFIXES = [
+  "/dashboard",
+  "/app",
+  "/supervisor",
+  "/kiosk",
+  "/register",
+  "/signup",
+];
+
+function isPathMatch(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
 
 export function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const { language } = useLanguage();
   const { maintenanceMode, maintenanceMessage, whatsappUrl, supportEmail } = usePlatformContact();
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [roleChecked, setRoleChecked] = useState(false);
 
-  const isExemptRoute = EXEMPT_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+  // Synchronously exempt /hq and /hq/* before any async checks
+  const isHqRoute = isPathMatch(pathname, "/hq");
+  const isLoginRoute = isPathMatch(pathname, "/login");
+  const isGatedRoute = GATED_PREFIXES.some((prefix) => isPathMatch(pathname, prefix));
 
   useEffect(() => {
-    if (!maintenanceMode || isExemptRoute) return;
+    if (!maintenanceMode || isHqRoute || !isGatedRoute) {
+      setRoleChecked(true);
+      return;
+    }
 
     let active = true;
+    setRoleChecked(false);
     const checkRole = async () => {
       try {
         const supabase = createClient();
         const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData?.session?.user?.id;
-        if (!userId) return;
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", userId)
-          .maybeSingle();
-        if (active && prof?.role === "super_admin") {
-          setIsSuperAdmin(true);
+        let userId = sessionData?.session?.user?.id;
+        if (!userId) {
+          const { data: userData } = await supabase.auth.getUser();
+          userId = userData?.user?.id;
+        }
+        if (userId) {
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", userId)
+            .maybeSingle();
+          if (active) {
+            setIsSuperAdmin(prof?.role === "super_admin");
+          }
+        } else if (active) {
+          setIsSuperAdmin(false);
         }
       } catch {
-        // ignore
+        if (active) setIsSuperAdmin(false);
+      } finally {
+        if (active) setRoleChecked(true);
       }
     };
+
     checkRole();
     return () => {
       active = false;
     };
-  }, [maintenanceMode, isExemptRoute]);
+  }, [maintenanceMode, isHqRoute, isGatedRoute]);
 
-  if (!maintenanceMode || isExemptRoute || isSuperAdmin) {
+  // 1. /hq, public marketing (/), /guide, /privacy, /terms, or maintenance off -> always open
+  if (isHqRoute || !maintenanceMode) {
     return <>{children}</>;
   }
 
+  // 2. /login -> keep login form accessible for super_admin, with a clear maintenance notice banner
+  if (isLoginRoute) {
+    return (
+      <>
+        <div className="bg-amber-50 dark:bg-amber-950/70 border-b border-amber-200 dark:border-amber-800 px-4 py-2.5 text-xs font-cairo text-amber-900 dark:text-amber-200">
+          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2 text-center">
+            <Wrench className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="font-bold">
+              {language === "ar"
+                ? `وضع الصيانة مفعّل حالياً: ${maintenanceMessage}`
+                : `Maintenance Mode Active: ${maintenanceMessage}`}
+            </span>
+          </div>
+        </div>
+        {children}
+      </>
+    );
+  }
+
+  // 3. Non-gated public routes (/, /guide, /privacy, /terms, etc.) -> always open
+  if (!isGatedRoute) {
+    return <>{children}</>;
+  }
+
+  // 4. Wait for role check on gated routes so super_admin is never locked out or flashed
+  if (!roleChecked) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <Loader2 className="w-7 h-7 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  if (isSuperAdmin) {
+    return <>{children}</>;
+  }
+
+  // 5. Gated operational & registration routes during maintenance -> Maintenance Screen
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex items-center justify-center p-4 font-cairo">
       <div className="max-w-md w-full rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-8 text-center space-y-5">
