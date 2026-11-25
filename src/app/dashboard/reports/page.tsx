@@ -106,7 +106,7 @@ export default function MonthlyReportsPage() {
 
   const loadReportData = async () => {
     const cacheKey = `reports_${company!.id}_${selectedBranchId}_${selectedYear}_${selectedMonth}`;
-    const cached = getCachedData<{ monthStatus: MonthStatusRecord; reportRows: EmployeeReportRow[] }>(cacheKey);
+    const cached = getCachedData<{ monthStatus: MonthlyReportStatus; reportRows: EmployeeReportRow[] }>(cacheKey);
     if (cached) {
       setMonthStatus(cached.monthStatus);
       setReportRows(cached.reportRows || []);
@@ -163,7 +163,7 @@ export default function MonthlyReportsPage() {
       ]);
 
       const reportStatusData = statusRes.data;
-      const nextMonthStatus: MonthStatusRecord = reportStatusData
+      const nextMonthStatus: MonthlyReportStatus = reportStatusData
         ? {
             id: reportStatusData.id,
             status: reportStatusData.status as any,

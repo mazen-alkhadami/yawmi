@@ -135,6 +135,7 @@ export default function EmployeeApp() {
     pinEnabled: false,
     pinHash: null,
     biometricEnabled: false,
+    biometricCredentialId: null,
   });
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [enteredPin, setEnteredPin] = useState("");
