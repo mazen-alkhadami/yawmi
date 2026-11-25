@@ -7,6 +7,7 @@ import { CompanyDashboardContext } from "../../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { DigitalIdModal } from "@/components/DigitalIdModal";
 import {
   User,
   ArrowRight,
@@ -83,7 +84,7 @@ export default function EmployeeHRPage() {
   const params = useParams();
   const employeeId = params?.id as string;
   const router = useRouter();
-  const { t, dir } = useLanguage();
+  const { t, dir, language } = useLanguage();
   const supabase = createClient();
   const { company, profile: managerProfile } = useContext(CompanyDashboardContext);
 
@@ -110,6 +111,8 @@ export default function EmployeeHRPage() {
   const [targetBranchId, setTargetBranchId] = useState("");
   const [transferNote, setTransferNote] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
+
+  const [digitalIdOpen, setDigitalIdOpen] = useState(false);
 
   useEffect(() => {
     if (employeeId) {
@@ -147,7 +150,7 @@ export default function EmployeeHRPage() {
           .maybeSingle(),
         supabase
           .from("attendance_logs")
-          .select("id, late_minutes, overtime_minutes, grace_period_applied")
+          .select("id, late_minutes, overtime_minutes, grace_used")
           .eq("employee_id", employeeId),
         supabase
           .from("employee_history")
@@ -175,7 +178,7 @@ export default function EmployeeHRPage() {
       if (attRes.data) {
         const totalLate = attRes.data.reduce((acc, log) => acc + (log.late_minutes || 0), 0);
         const totalOvertime = attRes.data.reduce((acc, log) => acc + (log.overtime_minutes || 0), 0);
-        const totalGrace = attRes.data.filter((log) => log.grace_period_applied).length;
+        const totalGrace = attRes.data.filter((log) => log.grace_used).length;
         nextSummary = {
           totalPresent: attRes.data.length,
           totalLateMinutes: totalLate,
@@ -369,7 +372,15 @@ export default function EmployeeHRPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setDigitalIdOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm"
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>{language === "ar" ? "البطاقة الذكية" : "Smart Digital ID"}</span>
+          </button>
           <button
             onClick={() => setPromotionModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm"
@@ -752,6 +763,17 @@ export default function EmployeeHRPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Printable Smart Employee Digital ID Modal */}
+      {employee && (
+        <DigitalIdModal
+          isOpen={digitalIdOpen}
+          onClose={() => setDigitalIdOpen(false)}
+          employee={employee}
+          companyName={company?.name}
+          branchName={employee.branch?.name}
+        />
       )}
     </div>
   );

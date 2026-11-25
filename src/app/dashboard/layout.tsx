@@ -24,6 +24,8 @@ import {
   X,
   Building2,
   HelpCircle,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface CompanyContextData {
@@ -178,11 +180,13 @@ export default function DashboardLayout({
 
   const navItems = [
     { href: "/dashboard", label: t("nav_overview"), icon: LayoutDashboard, tourId: "tour-nav-overview" },
+    { href: "/dashboard/live", label: language === "ar" ? "الحضور المباشر" : "Live Now", icon: Activity, tourId: "tour-nav-live" },
     { href: "/dashboard/branches", label: t("nav_branches"), icon: MapPin, tourId: "tour-nav-branches" },
     { href: "/dashboard/shifts", label: t("nav_shifts"), icon: CalendarClock, tourId: "tour-nav-shifts" },
     { href: "/dashboard/employees", label: t("nav_employees"), icon: Users, tourId: "tour-nav-employees" },
     { href: "/dashboard/requests", label: t("nav_requests"), icon: FileCheck2, tourId: "tour-nav-requests" },
     { href: "/dashboard/reports", label: t("nav_reports"), icon: FileBarChart2, tourId: "tour-nav-reports" },
+    { href: "/dashboard/audit-log", label: language === "ar" ? "سجل الإدارة" : "Audit Log", icon: ShieldCheck, tourId: "tour-nav-audit" },
     { href: "/dashboard/settings", label: t("nav_settings"), icon: Settings, tourId: "tour-nav-settings" },
   ];
 

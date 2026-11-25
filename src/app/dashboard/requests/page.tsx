@@ -5,6 +5,7 @@ import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { logAuditAction } from "@/lib/auditLog";
 import {
   FileCheck2,
   Clock,
@@ -322,6 +323,20 @@ export default function RequestsCenterPage() {
         .eq("company_id", company.id);
 
       if (reqUpdateErr) throw reqUpdateErr;
+
+      await logAuditAction({
+        companyId: company.id,
+        actorId: managerProfile.id,
+        actorName: managerProfile.full_name,
+        actorRole: managerProfile.role || "company_manager",
+        actionType: isApproved ? "request_approved" : "request_rejected",
+        targetSummary: `${selectedRequest.employee?.full_name || "موظف"} (${selectedRequest.type})`,
+        metadata: {
+          request_id: selectedRequest.id,
+          request_type: selectedRequest.type,
+          review_note: reviewNote.trim() || null,
+        },
+      });
 
       setFeedback({
         type: "success",

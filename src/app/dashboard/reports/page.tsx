@@ -146,7 +146,7 @@ export default function MonthlyReportsPage() {
 
       let attQuery = supabase
         .from("attendance_logs")
-        .select("id, employee_id, check_in_at, late_minutes, grace_period_applied, overtime_minutes, overtime_approved, is_manual_edit")
+        .select("id, employee_id, check_in_at, late_minutes, grace_used, overtime_minutes, overtime_approved, is_manual_edit")
         .eq("company_id", company!.id)
         .gte("shift_date", startDayStr)
         .lt("shift_date", endDayStr);
@@ -189,7 +189,7 @@ export default function MonthlyReportsPage() {
         const empLogs = logs.filter((l) => l.employee_id === emp.id);
         const presentDays = empLogs.filter((l) => l.check_in_at).length;
         const totalLate = empLogs.reduce((sum, l) => sum + (l.late_minutes || 0), 0);
-        const graceUses = empLogs.filter((l) => l.grace_period_applied).length;
+        const graceUses = empLogs.filter((l) => l.grace_used).length;
         const approvedOt = empLogs
           .filter((l) => l.overtime_approved)
           .reduce((sum, l) => sum + (l.overtime_minutes || 0), 0);

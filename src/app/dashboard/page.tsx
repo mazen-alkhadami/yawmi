@@ -6,6 +6,7 @@ import { CompanyDashboardContext } from "./layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { logAuditAction } from "@/lib/auditLog";
 import {
   MapPin,
   Users,
@@ -159,6 +160,16 @@ export default function DashboardOverviewPage() {
         .single();
 
       if (error) throw error;
+
+      await logAuditAction({
+        companyId: company.id,
+        actorId: profile?.id,
+        actorName: profile?.full_name,
+        actorRole: profile?.role || "company_manager",
+        actionType: "announcement_sent",
+        targetSummary: annTitle.trim(),
+        metadata: { branch_id: annBranchId || null, priority: annPriority },
+      });
 
       const updated = [data as AnnouncementRecord, ...announcements];
       setAnnouncements(updated);

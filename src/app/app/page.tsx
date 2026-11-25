@@ -9,6 +9,7 @@ import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProductTour, TourStep } from "@/components/ProductTour";
+import { DigitalIdModal } from "@/components/DigitalIdModal";
 import { verifyQrToken } from "@/lib/attendance/qr";
 import { calculateHaversineDistanceMeters } from "@/lib/attendance/geo";
 import { getOrCreateDeviceId, verifyDeviceBinding } from "@/lib/attendance/device";
@@ -233,6 +234,7 @@ export default function EmployeeApp() {
 
   // Interactive Employee Product Tour
   const [tourOpen, setTourOpen] = useState(false);
+  const [digitalIdOpen, setDigitalIdOpen] = useState(false);
 
   // Live Clock
   useEffect(() => {
@@ -2273,6 +2275,15 @@ export default function EmployeeApp() {
                       </span>
                     </div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setDigitalIdOpen(true)}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center gap-2 hover:bg-indigo-100 transition"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>{language === "ar" ? "عرض وطباعة بطاقة الموظف الذكية" : "View Smart Digital ID"}</span>
+                  </button>
                 </div>
 
                 {/* Security Settings: Quick Unlock */}
@@ -3051,6 +3062,16 @@ export default function EmployeeApp() {
         onComplete={handleCompleteTour}
         onSkip={handleCompleteTour}
       />
+
+      {/* Smart Employee Digital ID Modal */}
+      {profile && (
+        <DigitalIdModal
+          isOpen={digitalIdOpen}
+          onClose={() => setDigitalIdOpen(false)}
+          employee={profile}
+          branchName={branch?.name}
+        />
+      )}
     </div>
   );
 }

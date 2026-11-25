@@ -6,6 +6,7 @@ import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { logAuditAction } from "@/lib/auditLog";
 import {
   Users,
   Search,
@@ -61,7 +62,7 @@ interface ShiftTemplate {
 }
 
 export default function EmployeesManagementPage() {
-  const { company } = useContext(CompanyDashboardContext);
+  const { company, profile: managerProfile } = useContext(CompanyDashboardContext);
   const { t, language } = useLanguage();
   const supabase = createClient();
 
@@ -91,6 +92,13 @@ export default function EmployeesManagementPage() {
 
   // Action status message
   const [actionMsg, setActionMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Bulk Selection & Actions
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBranchId, setBulkBranchId] = useState<string>("");
+  const [bulkShiftId, setBulkShiftId] = useState<string>("");
+  const [bulkStatus, setBulkStatus] = useState<"" | "active" | "suspended">("");
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   const maxEmployees = company?.max_employees || 5;
   const currentCount = employees.filter((e) => e.status !== "suspended").length;
@@ -348,6 +356,21 @@ export default function EmployeesManagementPage() {
         }
       }
 
+      await logAuditAction({
+        companyId: company!.id,
+        actorId: managerProfile?.id,
+        actorName: managerProfile?.full_name,
+        actorRole: managerProfile?.role || "company_manager",
+        actionType: "employee_updated",
+        targetSummary: editingEmp.full_name,
+        metadata: {
+          employee_id: editingEmp.id,
+          branch_id: editBranchId || null,
+          shift_template_id: editShiftId || null,
+          role: editRole,
+        },
+      });
+
       setEditingEmp(null);
       setActionMsg({ type: "success", text: "تم حفظ التعديلات وتعيين الصلاحيات والفروع بنجاح." });
       await fetchData();
@@ -355,6 +378,124 @@ export default function EmployeesManagementPage() {
       setActionMsg({ type: "error", text: err.message || "Failed to update employee details." });
     } finally {
       setSubmittingEdit(false);
+    }
+  };
+
+  // Bulk Selection Handlers
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAll = () => {
+    const visibleIds = filteredEmployees.map((e) => e.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds(allSelected ? [] : visibleIds);
+  };
+
+  const handleBulkTransferBranch = async () => {
+    if (!company?.id || !bulkBranchId || selectedIds.length === 0) return;
+    setBulkSubmitting(true);
+    try {
+      const targetBranchName = branches.find((b) => b.id === bulkBranchId)?.name || "";
+      const { error } = await supabase
+        .from("profiles")
+        .update({ branch_id: bulkBranchId })
+        .in("id", selectedIds)
+        .eq("company_id", company.id);
+      if (error) throw error;
+
+      // Record employee_history entries for transferred employees
+      const historyRows = selectedIds.map((empId) => {
+        const empObj = employees.find((e) => e.id === empId);
+        const oldBranchName = branches.find((b) => b.id === empObj?.branch_id)?.name || "غير معين";
+        return {
+          company_id: company.id,
+          employee_id: empId,
+          event_type: "transfer",
+          old_value: oldBranchName,
+          new_value: targetBranchName,
+          note: language === "ar" ? "نقل جماعي من لوحة الموظفين" : "Bulk branch transfer",
+          changed_by: managerProfile?.id || null,
+        };
+      });
+      await supabase.from("employee_history").insert(historyRows);
+
+      await logAuditAction({
+        companyId: company.id,
+        actorId: managerProfile?.id,
+        actorName: managerProfile?.full_name,
+        actorRole: managerProfile?.role || "company_manager",
+        actionType: "employee_transferred",
+        targetSummary: `${selectedIds.length} ${language === "ar" ? "موظف" : "employees"} → ${targetBranchName}`,
+        metadata: { employee_ids: selectedIds, branch_id: bulkBranchId },
+      });
+
+      setActionMsg({
+        type: "success",
+        text:
+          language === "ar"
+            ? `تم نقل ${selectedIds.length} موظف إلى فرع (${targetBranchName}) بنجاح.`
+            : `Transferred ${selectedIds.length} employees to ${targetBranchName}.`,
+      });
+      setSelectedIds([]);
+      setBulkBranchId("");
+      await fetchData();
+    } catch (err: any) {
+      setActionMsg({ type: "error", text: err.message || "Bulk transfer failed." });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  };
+
+  const handleBulkUpdateShiftOrStatus = async () => {
+    if (!company?.id || selectedIds.length === 0 || (!bulkShiftId && !bulkStatus)) return;
+    setBulkSubmitting(true);
+    try {
+      const updatePayload: any = {};
+      if (bulkShiftId) updatePayload.shift_template_id = bulkShiftId;
+      if (bulkStatus) updatePayload.status = bulkStatus;
+
+      const { error } = await supabase
+        .from("profiles")
+        .update(updatePayload)
+        .in("id", selectedIds)
+        .eq("company_id", company.id);
+      if (error) throw error;
+
+      const summaryParts: string[] = [];
+      if (bulkShiftId) {
+        const sName = shifts.find((s) => s.id === bulkShiftId)?.name || "";
+        summaryParts.push(`${language === "ar" ? "الشفت:" : "Shift:"} ${sName}`);
+      }
+      if (bulkStatus) {
+        summaryParts.push(`${language === "ar" ? "الحالة:" : "Status:"} ${bulkStatus}`);
+      }
+
+      await logAuditAction({
+        companyId: company.id,
+        actorId: managerProfile?.id,
+        actorName: managerProfile?.full_name,
+        actorRole: managerProfile?.role || "company_manager",
+        actionType: "bulk_update",
+        targetSummary: `${selectedIds.length} ${language === "ar" ? "موظف" : "employees"} (${summaryParts.join(" • ")})`,
+        metadata: { employee_ids: selectedIds, ...updatePayload },
+      });
+
+      setActionMsg({
+        type: "success",
+        text:
+          language === "ar"
+            ? `تم تحديث بيانات ${selectedIds.length} موظف بنجاح.`
+            : `Updated ${selectedIds.length} employees successfully.`,
+      });
+      setSelectedIds([]);
+      setBulkShiftId("");
+      setBulkStatus("");
+      await fetchData();
+    } catch (err: any) {
+      setActionMsg({ type: "error", text: err.message || "Bulk update failed." });
+    } finally {
+      setBulkSubmitting(false);
     }
   };
 
@@ -484,6 +625,84 @@ export default function EmployeesManagementPage() {
         </div>
       </div>
 
+      {/* Floating/Sticky Bulk Action Bar when >= 1 employee selected */}
+      {selectedIds.length > 0 && (
+        <div className="sticky top-2 z-20 p-3.5 rounded-2xl bg-indigo-950 text-white shadow-xl border border-indigo-700 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-xs font-bold">
+            <span className="px-2.5 py-1 rounded-lg bg-indigo-600 font-mono">
+              {selectedIds.length}
+            </span>
+            <span>{language === "ar" ? "موظف محدد للإجراء الجماعي" : "employees selected"}</span>
+            <button
+              type="button"
+              onClick={() => setSelectedIds([])}
+              className="text-indigo-300 hover:text-white underline text-[11px]"
+            >
+              {language === "ar" ? "إلغاء التحديد" : "Clear"}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Bulk Branch Transfer */}
+            <div className="flex items-center gap-1.5">
+              <select
+                value={bulkBranchId}
+                onChange={(e) => setBulkBranchId(e.target.value)}
+                className="px-2.5 py-1.5 rounded-xl bg-indigo-900 border border-indigo-700 text-white text-xs focus:outline-none"
+              >
+                <option value="">{language === "ar" ? "نقل إلى فرع..." : "Transfer to branch..."}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!bulkBranchId || bulkSubmitting}
+                onClick={handleBulkTransferBranch}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-50 transition"
+              >
+                {language === "ar" ? "نقل جماعي" : "Transfer"}
+              </button>
+            </div>
+
+            {/* Bulk Shift / Status Update */}
+            <div className="flex items-center gap-1.5">
+              <select
+                value={bulkShiftId}
+                onChange={(e) => setBulkShiftId(e.target.value)}
+                className="px-2.5 py-1.5 rounded-xl bg-indigo-900 border border-indigo-700 text-white text-xs focus:outline-none"
+              >
+                <option value="">{language === "ar" ? "تعيين شفت..." : "Assign shift..."}</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value as any)}
+                className="px-2.5 py-1.5 rounded-xl bg-indigo-900 border border-indigo-700 text-white text-xs focus:outline-none"
+              >
+                <option value="">{language === "ar" ? "تغيير الحالة..." : "Change status..."}</option>
+                <option value="active">{t("active")}</option>
+                <option value="suspended">{t("suspended")}</option>
+              </select>
+              <button
+                type="button"
+                disabled={(!bulkShiftId && !bulkStatus) || bulkSubmitting}
+                onClick={handleBulkUpdateShiftOrStatus}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold disabled:opacity-50 transition"
+              >
+                {language === "ar" ? "تطبيق التعديل" : "Apply Update"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Employees Table */}
       {loading ? (
         <div className="space-y-3 animate-pulse">
@@ -503,6 +722,18 @@ export default function EmployeesManagementPage() {
           <table className="w-full text-xs text-start">
             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold">
               <tr>
+                <th className="py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={
+                      filteredEmployees.length > 0 &&
+                      filteredEmployees.every((e) => selectedIds.includes(e.id))
+                    }
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    aria-label="Select all employees"
+                  />
+                </th>
                 <th className="py-3 px-4 text-start">{t("emp_name")}</th>
                 <th className="py-3 px-4 text-start">{t("emp_branch")}</th>
                 <th className="py-3 px-4 text-start">{t("emp_shift")}</th>
@@ -518,7 +749,21 @@ export default function EmployeesManagementPage() {
                 const shiftName = shifts.find((s) => s.id === emp.shift_template_id)?.name || t("unassigned");
 
                 return (
-                  <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                  <tr
+                    key={emp.id}
+                    className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition ${
+                      selectedIds.includes(emp.id) ? "bg-indigo-50/40 dark:bg-indigo-950/20" : ""
+                    }`}
+                  >
+                    <td className="py-3 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(emp.id)}
+                        onChange={() => toggleSelectOne(emp.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        aria-label={`Select ${emp.full_name}`}
+                      />
+                    </td>
                     {/* Name & Contact */}
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
