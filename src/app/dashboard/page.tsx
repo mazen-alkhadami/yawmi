@@ -27,6 +27,9 @@ import {
 interface AnnouncementRecord {
   id: string;
   company_id: string;
+  branch_id?: string | null;
+  sender_name?: string | null;
+  sender_role?: string | null;
   title: string;
   body: string;
   priority: "normal" | "urgent";
@@ -41,6 +44,7 @@ export default function DashboardOverviewPage() {
   const [branchesCount, setBranchesCount] = useState<number>(0);
   const [employeesCount, setEmployeesCount] = useState<number>(0);
   const [shiftsCount, setShiftsCount] = useState<number>(0);
+  const [branchesList, setBranchesList] = useState<Array<{ id: string; name: string }>>([]);
   const [copied, setCopied] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -49,6 +53,7 @@ export default function DashboardOverviewPage() {
   const [annTitle, setAnnTitle] = useState("");
   const [annBody, setAnnBody] = useState("");
   const [annPriority, setAnnPriority] = useState<"normal" | "urgent">("normal");
+  const [annBranchId, setAnnBranchId] = useState<string>("");
   const [publishingAnn, setPublishingAnn] = useState(false);
   const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
   const [annFeedback, setAnnFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -63,23 +68,26 @@ export default function DashboardOverviewPage() {
         branchesCount: number;
         employeesCount: number;
         shiftsCount: number;
+        branchesList?: Array<{ id: string; name: string }>;
         announcements?: AnnouncementRecord[];
       }>(cacheKey);
       if (cached) {
         setBranchesCount(cached.branchesCount);
         setEmployeesCount(cached.employeesCount);
         setShiftsCount(cached.shiftsCount);
+        if (cached.branchesList) setBranchesList(cached.branchesList);
         if (cached.announcements) setAnnouncements(cached.announcements);
         setStatsLoading(false);
       }
 
       try {
-        // Run count & announcements queries in parallel for instant load
+        // Run count, branches list & announcements queries in parallel for instant load
         const [bRes, eRes, sRes, annRes] = await Promise.all([
           supabase
             .from("branches")
-            .select("*", { count: "exact", head: true })
-            .eq("company_id", company.id),
+            .select("id, name", { count: "exact" })
+            .eq("company_id", company.id)
+            .order("name", { ascending: true }),
           supabase
             .from("profiles")
             .select("*", { count: "exact", head: true })
@@ -96,11 +104,13 @@ export default function DashboardOverviewPage() {
             .limit(20),
         ]);
 
-        const nextBranches = bRes.count || 0;
+        const nextBranchesList = (bRes.data as Array<{ id: string; name: string }>) || [];
+        const nextBranches = bRes.count || nextBranchesList.length || 0;
         const nextEmployees = Math.max(0, (eRes.count || 1) - 1);
         const nextShifts = sRes.count || 0;
         const nextAnnouncements = (annRes.data as AnnouncementRecord[]) || [];
 
+        setBranchesList(nextBranchesList);
         setBranchesCount(nextBranches);
         setEmployeesCount(nextEmployees);
         setShiftsCount(nextShifts);
@@ -109,6 +119,7 @@ export default function DashboardOverviewPage() {
           branchesCount: nextBranches,
           employeesCount: nextEmployees,
           shiftsCount: nextShifts,
+          branchesList: nextBranchesList,
           announcements: nextAnnouncements,
         });
       } catch (err) {
@@ -135,6 +146,9 @@ export default function DashboardOverviewPage() {
         .insert([
           {
             company_id: company.id,
+            branch_id: annBranchId || null,
+            sender_name: profile?.full_name || (language === "ar" ? "مدير الشركة" : "Company Admin"),
+            sender_role: "company_admin",
             title: annTitle.trim(),
             body: annBody.trim(),
             priority: annPriority,
@@ -152,14 +166,22 @@ export default function DashboardOverviewPage() {
         branchesCount,
         employeesCount,
         shiftsCount,
+        branchesList,
         announcements: updated,
       });
       setAnnTitle("");
       setAnnBody("");
       setAnnPriority("normal");
+      setAnnBranchId("");
       setAnnFeedback({
         type: "success",
-        text: language === "ar" ? "تم نشر التعميم لجميع الموظفين بنجاح!" : "Announcement published to all staff!",
+        text: annBranchId
+          ? language === "ar"
+            ? "تم نشر التعميم للفرع المحدد بنجاح!"
+            : "Announcement published to selected branch!"
+          : language === "ar"
+          ? "تم نشر التعميم لجميع الفروع بنجاح!"
+          : "Announcement published to all branches!",
       });
     } catch (err: any) {
       setAnnFeedback({
@@ -458,6 +480,26 @@ export default function DashboardOverviewPage() {
 
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                {language === "ar" ? "الجمهور المستهدف (الفرع)" : "Target Audience (Branch)"}
+              </label>
+              <select
+                value={annBranchId}
+                onChange={(e) => setAnnBranchId(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">
+                  {language === "ar" ? "جميع الفروع (تعميم عام للشركة)" : "All Branches (Company-Wide)"}
+                </option>
+                {branchesList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                 {language === "ar" ? "نص التعميم *" : "Message Body *"}
               </label>
               <textarea
@@ -521,7 +563,22 @@ export default function DashboardOverviewPage() {
                 {language === "ar" ? "لم يتم نشر أي تعميمات بعد." : "No announcements published yet."}
               </div>
             ) : (
-              announcements.map((ann) => (
+              announcements.map((ann) => {
+                const targetBranchName = ann.branch_id
+                  ? branchesList.find((b) => b.id === ann.branch_id)?.name || (language === "ar" ? "فرع محدد" : "Specific Branch")
+                  : language === "ar"
+                  ? "جميع الفروع"
+                  : "All Branches";
+                const senderRoleLabel =
+                  ann.sender_role === "supervisor"
+                    ? language === "ar"
+                      ? "مشرف الفرع"
+                      : "Branch Supervisor"
+                    : language === "ar"
+                    ? "مدير الشركة"
+                    : "Company Admin";
+
+                return (
                 <div
                   key={ann.id}
                   className={`p-3.5 rounded-xl border flex items-start justify-between gap-3 ${
@@ -540,17 +597,28 @@ export default function DashboardOverviewPage() {
                           {language === "ar" ? "عاجل" : "Urgent"}
                         </span>
                       )}
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        {targetBranchName}
+                      </span>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                       {ann.body}
                     </p>
-                    <span className="text-[10px] text-slate-400 font-mono block">
-                      {new Date(ann.created_at).toLocaleDateString("ar-SA", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap text-[10px] text-slate-400">
+                      {ann.sender_name && (
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">
+                          {language === "ar" ? "المرسل:" : "From:"} {ann.sender_name} • {senderRoleLabel}
+                        </span>
+                      )}
+                      <span>•</span>
+                      <span className="font-mono">
+                        {new Date(ann.created_at).toLocaleDateString("ar-SA", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
                   </div>
 
                   <button
@@ -567,7 +635,8 @@ export default function DashboardOverviewPage() {
                     )}
                   </button>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

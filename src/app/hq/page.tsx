@@ -31,6 +31,9 @@ import {
   ExternalLink,
   ChevronDown,
   Sparkles,
+  Smartphone,
+  Download,
+  MapPin,
 } from "lucide-react";
 
 interface CompanyRecord {
@@ -84,8 +87,11 @@ export default function SuperAdminHQPage() {
   const [totalCompanies, setTotalCompanies] = useState(0);
   const [activeCompanies, setActiveCompanies] = useState(0);
   const [suspendedCompanies, setSuspendedCompanies] = useState(0);
+  const [totalBranches, setTotalBranches] = useState(0);
   const [totalEmployees, setTotalEmployees] = useState(0);
+  const [todayAttendanceCount, setTodayAttendanceCount] = useState(0);
   const [pendingUpgradesCount, setPendingUpgradesCount] = useState(0);
+  const [pwaInstalls, setPwaInstalls] = useState<any[]>([]);
 
   // Companies List & Search
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
@@ -129,8 +135,11 @@ export default function SuperAdminHQPage() {
       totalCompanies: number;
       activeCompanies: number;
       suspendedCompanies: number;
+      totalBranches?: number;
       totalEmployees: number;
+      todayAttendanceCount?: number;
       pendingUpgradesCount: number;
+      pwaInstalls?: any[];
       companies: CompanyRecord[];
       upgradeRequests: UpgradeRequestRecord[];
       settings: PlatformSettingsState;
@@ -140,8 +149,11 @@ export default function SuperAdminHQPage() {
       setTotalCompanies(cached.totalCompanies);
       setActiveCompanies(cached.activeCompanies);
       setSuspendedCompanies(cached.suspendedCompanies);
+      if (cached.totalBranches !== undefined) setTotalBranches(cached.totalBranches);
       setTotalEmployees(cached.totalEmployees);
+      if (cached.todayAttendanceCount !== undefined) setTodayAttendanceCount(cached.todayAttendanceCount);
       setPendingUpgradesCount(cached.pendingUpgradesCount);
+      if (cached.pwaInstalls) setPwaInstalls(cached.pwaInstalls);
       setCompanies(cached.companies || []);
       setUpgradeRequests(cached.upgradeRequests || []);
       if (cached.settings) setSettings(cached.settings);
@@ -175,31 +187,52 @@ export default function SuperAdminHQPage() {
         return;
       }
 
-      const [compCountRes, actCountRes, suspCountRes, empCountRes, upCountRes, compsRes, reqsRes, platRes] =
-        await Promise.all([
-          supabase.from("companies").select("id", { count: "exact", head: true }),
-          supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "active"),
-          supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "suspended"),
-          supabase.from("profiles").select("id", { count: "exact", head: true }).neq("role", "super_admin"),
-          supabase.from("upgrade_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
-          supabase.from("companies").select("*").order("created_at", { ascending: false }),
-          supabase.from("upgrade_requests").select("*, company:company_id(id, name, plan)").order("created_at", { ascending: false }),
-          supabase.from("platform_settings").select("*").limit(1).maybeSingle(),
-        ]);
+      const todayStr = new Date().toISOString().split("T")[0];
+      const [
+        compCountRes,
+        actCountRes,
+        suspCountRes,
+        branchCountRes,
+        empCountRes,
+        todayAttRes,
+        upCountRes,
+        pwaRes,
+        compsRes,
+        reqsRes,
+        platRes,
+      ] = await Promise.all([
+        supabase.from("companies").select("id", { count: "exact", head: true }),
+        supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "active"),
+        supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "suspended"),
+        supabase.from("branches").select("id", { count: "exact", head: true }),
+        supabase.from("profiles").select("id", { count: "exact", head: true }).neq("role", "super_admin"),
+        supabase.from("attendance_logs").select("id", { count: "exact", head: true }).eq("shift_date", todayStr),
+        supabase.from("upgrade_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+        supabase.from("pwa_installs").select("*").order("created_at", { ascending: false }).limit(100),
+        supabase.from("companies").select("*").order("created_at", { ascending: false }),
+        supabase.from("upgrade_requests").select("*, company:company_id(id, name, plan)").order("created_at", { ascending: false }),
+        supabase.from("platform_settings").select("*").limit(1).maybeSingle(),
+      ]);
 
       const nextTotal = compCountRes.count || 0;
       const nextActive = actCountRes.count || 0;
       const nextSusp = suspCountRes.count || 0;
+      const nextBranches = branchCountRes.count || 0;
       const nextEmp = empCountRes.count || 0;
+      const nextTodayAtt = todayAttRes.count || 0;
       const nextPending = upCountRes.count || 0;
+      const nextPwa = pwaRes.data || [];
       const nextComps = (compsRes.data as any) || [];
       const nextReqs = (reqsRes.data as any) || [];
 
       setTotalCompanies(nextTotal);
       setActiveCompanies(nextActive);
       setSuspendedCompanies(nextSusp);
+      setTotalBranches(nextBranches);
       setTotalEmployees(nextEmp);
+      setTodayAttendanceCount(nextTodayAtt);
       setPendingUpgradesCount(nextPending);
+      setPwaInstalls(nextPwa);
       setCompanies(nextComps);
       setUpgradeRequests(nextReqs);
 
@@ -222,8 +255,11 @@ export default function SuperAdminHQPage() {
         totalCompanies: nextTotal,
         activeCompanies: nextActive,
         suspendedCompanies: nextSusp,
+        totalBranches: nextBranches,
         totalEmployees: nextEmp,
+        todayAttendanceCount: nextTodayAtt,
         pendingUpgradesCount: nextPending,
+        pwaInstalls: nextPwa,
         companies: nextComps,
         upgradeRequests: nextReqs,
         settings: nextSettings,
@@ -634,7 +670,7 @@ export default function SuperAdminHQPage() {
             {/* TAB 1: Overview & KPIs */}
             {activeTab === "overview" && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                   <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
                     <span className="text-xs text-slate-400 block">{t("total_companies")}</span>
                     <span className="text-2xl font-black font-mono text-indigo-600">
@@ -646,6 +682,17 @@ export default function SuperAdminHQPage() {
                   </div>
 
                   <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-purple-500" />
+                      <span>{language === "ar" ? "إجمالي الفروع" : "Total Branches"}</span>
+                    </span>
+                    <span className="text-2xl font-black font-mono text-purple-600">
+                      {totalBranches}
+                    </span>
+                    <span className="text-[11px] text-slate-500 block">فرع مسجل بالمنصة</span>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
                     <span className="text-xs text-slate-400 block">{t("total_employees")}</span>
                     <span className="text-2xl font-black font-mono text-emerald-600">
                       {totalEmployees}
@@ -654,21 +701,162 @@ export default function SuperAdminHQPage() {
                   </div>
 
                   <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-teal-500" />
+                      <span>{language === "ar" ? "سجلات حضور اليوم" : "Today's Attendance"}</span>
+                    </span>
+                    <span className="text-2xl font-black font-mono text-teal-600">
+                      {todayAttendanceCount}
+                    </span>
+                    <span className="text-[11px] text-slate-500 block">عملية تسجيل اليوم</span>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1 col-span-2 sm:col-span-1">
                     <span className="text-xs text-slate-400 block">{t("pending_upgrades")}</span>
                     <span className="text-2xl font-black font-mono text-amber-500">
                       {pendingUpgradesCount}
                     </span>
                     <span className="text-[11px] text-slate-500 block">حوالات تنتظر المراجعة</span>
                   </div>
-
-                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
-                    <span className="text-xs text-slate-400 block">حالة المنصة</span>
-                    <span className="text-2xl font-black font-mono text-emerald-500">
-                      100%
-                    </span>
-                    <span className="text-[11px] text-slate-500 block">جاهزية تشغيلية كاملة</span>
-                  </div>
                 </div>
+
+                {/* PWA Installation Analytics Card */}
+                {(() => {
+                  const totalInstalls = pwaInstalls.length;
+                  const androidCount = pwaInstalls.filter((i) =>
+                    (i.platform || "").toLowerCase().includes("android")
+                  ).length;
+                  const iosCount = pwaInstalls.filter((i) =>
+                    (i.platform || "").toLowerCase().includes("ios")
+                  ).length;
+                  const otherCount = Math.max(0, totalInstalls - androidCount - iosCount);
+
+                  const empInstalls = pwaInstalls.filter((i) => i.role === "employee").length;
+                  const adminInstalls = pwaInstalls.filter((i) => i.role === "company_manager").length;
+                  const supInstalls = pwaInstalls.filter((i) => i.role === "branch_supervisor").length;
+
+                  const pct = (count: number) =>
+                    totalInstalls > 0 ? Math.round((count / totalInstalls) * 100) : 0;
+
+                  return (
+                    <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                            <Download className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                              {language === "ar" ? "تحليلات تثبيت تطبيق الجوال (PWA)" : "PWA App Install Analytics"}
+                            </h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {language === "ar"
+                                ? "إحصائيات تثبيت التطبيق على الشاشة الرئيسية حسب نوع الجهاز والدور الوظيفي."
+                                : "Home-screen install metrics broken down by device platform and user role."}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2 self-start sm:self-center">
+                          <Smartphone className="w-4 h-4 text-emerald-600" />
+                          <span className="text-lg font-black font-mono text-emerald-700 dark:text-emerald-300">
+                            {totalInstalls}
+                          </span>
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            {language === "ar" ? "إجمالي التثبيتات" : "Total Installs"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Column 1: Platform Breakdown */}
+                        <div className="space-y-3 text-xs">
+                          <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                            {language === "ar" ? "توزيع الأجهزة (Platform)" : "By Platform / Device"}
+                          </h4>
+                          {[
+                            { label: "Android / Chrome", count: androidCount, color: "bg-emerald-500" },
+                            { label: "iOS Safari", count: iosCount, color: "bg-indigo-500" },
+                            { label: language === "ar" ? "سطح المكتب / أخرى" : "Desktop / Other", count: otherCount, color: "bg-slate-400" },
+                          ].map((row) => (
+                            <div key={row.label} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">{row.label}</span>
+                                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                                  {row.count} ({pct(row.count)}%)
+                                </span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${row.color}`}
+                                  style={{ width: `${pct(row.count)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Column 2: Role Breakdown */}
+                        <div className="space-y-3 text-xs">
+                          <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                            {language === "ar" ? "توزيع الأدوار (User Role)" : "By User Role"}
+                          </h4>
+                          <div className="grid grid-cols-1 gap-2">
+                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                              <span className="font-semibold">{language === "ar" ? "الموظفون" : "Employees"}</span>
+                              <span className="px-2 py-0.5 rounded-md font-mono font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                                {empInstalls}
+                              </span>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                              <span className="font-semibold">{language === "ar" ? "مديرو الشركات" : "Company Admins"}</span>
+                              <span className="px-2 py-0.5 rounded-md font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                {adminInstalls}
+                              </span>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                              <span className="font-semibold">{language === "ar" ? "مشرفو الفروع" : "Supervisors"}</span>
+                              <span className="px-2 py-0.5 rounded-md font-mono font-bold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                {supInstalls}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Column 3: Recent Installs Feed */}
+                        <div className="space-y-2.5 text-xs">
+                          <h4 className="font-bold text-slate-700 dark:text-slate-300">
+                            {language === "ar" ? "أحدث عمليات التثبيت" : "Recent Installs"}
+                          </h4>
+                          {pwaInstalls.length === 0 ? (
+                            <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center text-slate-400">
+                              {language === "ar" ? "لا توجد تثبيتات مسجلة بعد." : "No installs recorded yet."}
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-36 overflow-y-auto pe-1">
+                              {pwaInstalls.slice(0, 5).map((inst) => (
+                                <div
+                                  key={inst.id}
+                                  className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
+                                >
+                                  <span className="font-mono font-semibold text-[11px] truncate">
+                                    {inst.platform || "unknown"} • {inst.role || "employee"}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                    {new Date(inst.created_at).toLocaleDateString("ar-SA", {
+                                      day: "numeric",
+                                      month: "short",
+                                    })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Quick Shortcuts */}
                 <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">

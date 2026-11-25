@@ -28,6 +28,9 @@ import {
   ShieldAlert,
   Calendar,
   RotateCcw,
+  Megaphone,
+  Send,
+  Trash2,
 } from "lucide-react";
 
 interface Branch {
@@ -116,7 +119,7 @@ interface PendingEmployee {
 export default function BranchSupervisorPage() {
   const router = useRouter();
   const supabase = createClient();
-  const { t, dir } = useLanguage();
+  const { t, dir, language } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -127,12 +130,19 @@ export default function BranchSupervisorPage() {
     can_close_month: false,
   });
 
-  const [activeTab, setActiveTab] = useState<"attendance" | "requests" | "approvals">("attendance");
+  const [activeTab, setActiveTab] = useState<"attendance" | "requests" | "approvals" | "announcements">("attendance");
 
   // Data states
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceRecord[]>([]);
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [pendingEmployees, setPendingEmployees] = useState<PendingEmployee[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [annBranchId, setAnnBranchId] = useState<string>("");
+  const [annTitle, setAnnTitle] = useState("");
+  const [annBody, setAnnBody] = useState("");
+  const [annPriority, setAnnPriority] = useState<"normal" | "urgent">("normal");
+  const [publishingAnn, setPublishingAnn] = useState(false);
+  const [annFeedback, setAnnFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Filters & search
   const [branchFilter, setBranchFilter] = useState<string>("all");
@@ -252,18 +262,22 @@ export default function BranchSupervisorPage() {
       }
 
       setAssignedBranches(branchList);
+      if (branchList.length > 0) {
+        setAnnBranchId((prev) => (prev && branchList.some((b) => b.id === prev) ? prev : branchList[0].id));
+      }
 
       let nextAtt: AttendanceRecord[] = [];
       let nextReqs: RequestRecord[] = [];
       let nextPending: PendingEmployee[] = [];
       let nextShifts: Array<{ id: string; name: string }> = [];
+      let nextAnnouncements: any[] = [];
 
       if (branchList.length > 0) {
         const branchIds = branchList.map((b) => b.id);
         const todayStr = new Date().toISOString().split("T")[0];
         const canApprove = parsedPermissions.can_approve_employees || profileData.role === "company_manager";
 
-        const [attRes, reqRes, pendingRes, shiftsRes] = await Promise.all([
+        const [attRes, reqRes, pendingRes, shiftsRes, annRes] = await Promise.all([
           supabase
             .from("attendance_logs")
             .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
@@ -295,17 +309,26 @@ export default function BranchSupervisorPage() {
                 .eq("company_id", profileData.company_id)
                 .order("name", { ascending: true })
             : Promise.resolve({ data: [] }),
+          supabase
+            .from("announcements")
+            .select("*")
+            .eq("company_id", profileData.company_id)
+            .in("branch_id", branchIds)
+            .order("created_at", { ascending: false })
+            .limit(20),
         ]);
 
         nextAtt = (attRes.data as any) || [];
         nextReqs = (reqRes.data as any) || [];
         nextPending = (pendingRes.data as any) || [];
         nextShifts = (shiftsRes.data as any) || [];
+        nextAnnouncements = (annRes.data as any) || [];
 
         setAttendanceLogs(nextAtt);
         setRequests(nextReqs);
         setPendingEmployees(nextPending);
         setShiftTemplates(nextShifts);
+        setAnnouncements(nextAnnouncements);
       }
 
       setCachedData(cacheKey, {
@@ -321,6 +344,68 @@ export default function BranchSupervisorPage() {
       console.error("Error loading supervisor portal:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateBranchAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetBranchId = annBranchId || assignedBranches[0]?.id;
+    if (!profile?.company_id || !targetBranchId || !annTitle.trim() || !annBody.trim()) return;
+    setPublishingAnn(true);
+    setAnnFeedback(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("announcements")
+        .insert([
+          {
+            company_id: profile.company_id,
+            branch_id: targetBranchId,
+            sender_name: profile.full_name || (language === "ar" ? "مشرف الفرع" : "Branch Supervisor"),
+            sender_role: "supervisor",
+            title: annTitle.trim(),
+            body: annBody.trim(),
+            priority: annPriority,
+            created_by: profile.id,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setAnnouncements((prev) => [data, ...prev]);
+      setAnnTitle("");
+      setAnnBody("");
+      setAnnPriority("normal");
+      setAnnFeedback({
+        type: "success",
+        text: language === "ar" ? "تم نشر تعميم الفرع لموظفي الفرع بنجاح!" : "Branch announcement published!",
+      });
+    } catch (err: any) {
+      setAnnFeedback({
+        type: "error",
+        text: err.message || (language === "ar" ? "فشل نشر التعميم." : "Failed to publish announcement."),
+      });
+    } finally {
+      setPublishingAnn(false);
+    }
+  };
+
+  const handleDeleteBranchAnnouncement = async (annId: string) => {
+    if (!profile?.company_id) return;
+    try {
+      const { error } = await supabase
+        .from("announcements")
+        .delete()
+        .eq("id", annId)
+        .eq("company_id", profile.company_id);
+      if (error) throw error;
+      setAnnouncements((prev) => prev.filter((a) => a.id !== annId));
+    } catch (err: any) {
+      setAnnFeedback({
+        type: "error",
+        text: err.message || (language === "ar" ? "فشل حذف التعميم." : "Failed to delete."),
+      });
     }
   };
 
@@ -661,10 +746,10 @@ export default function BranchSupervisorPage() {
             {/* Navigation Tabs & Filter Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               {/* Tabs */}
-              <div className="flex items-center gap-1 p-1 bg-slate-200 dark:bg-slate-800/80 rounded-xl">
+              <div className="flex items-center gap-1 p-1 bg-slate-200 dark:bg-slate-800/80 rounded-xl overflow-x-auto whitespace-nowrap max-w-full">
                 <button
                   onClick={() => setActiveTab("attendance")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                     activeTab === "attendance"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -679,7 +764,7 @@ export default function BranchSupervisorPage() {
 
                 <button
                   onClick={() => setActiveTab("requests")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                     activeTab === "requests"
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -697,7 +782,7 @@ export default function BranchSupervisorPage() {
                 {permissions.can_approve_employees && (
                   <button
                     onClick={() => setActiveTab("approvals")}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                       activeTab === "approvals"
                         ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
@@ -712,6 +797,18 @@ export default function BranchSupervisorPage() {
                     )}
                   </button>
                 )}
+
+                <button
+                  onClick={() => setActiveTab("announcements")}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                    activeTab === "announcements"
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <Megaphone className="w-3.5 h-3.5" />
+                  <span>{language === "ar" ? "تعميمات الفرع" : "Branch Announcements"}</span>
+                </button>
               </div>
 
               {/* Filters */}
@@ -1031,6 +1128,184 @@ export default function BranchSupervisorPage() {
                     </table>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* TAB 4: Branch-Scoped Announcements */}
+            {activeTab === "announcements" && (
+              <div className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-5 shadow-sm space-y-5">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                      <Megaphone className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                        {language === "ar" ? "تعميمات موظفي الفرع" : "Branch Staff Announcements"}
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {language === "ar"
+                          ? "تصل هذه التعميمات حصرياً لموظفي الفرع المسند إليك مع إظهار اسمك وصفتك."
+                          : "Broadcasts sent strictly to employees in your assigned branch."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {annFeedback && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-bold border ${
+                      annFeedback.type === "success"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                        : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
+                    }`}
+                  >
+                    {annFeedback.text}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <form onSubmit={handleCreateBranchAnnouncement} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        {language === "ar" ? "الفرع المستهدف" : "Target Branch"}
+                      </label>
+                      <select
+                        value={annBranchId || assignedBranches[0]?.id || ""}
+                        onChange={(e) => setAnnBranchId(e.target.value)}
+                        disabled={assignedBranches.length <= 1}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-80"
+                      >
+                        {assignedBranches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        {language === "ar" ? "عنوان التعميم *" : "Title *"}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={annTitle}
+                        onChange={(e) => setAnnTitle(e.target.value)}
+                        placeholder={language === "ar" ? "مثال: اجتماع طاقم الفرع الصباحي" : "e.g., Morning Shift Briefing"}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        {language === "ar" ? "نص التعميم *" : "Message *"}
+                      </label>
+                      <textarea
+                        rows={3}
+                        required
+                        value={annBody}
+                        onChange={(e) => setAnnBody(e.target.value)}
+                        placeholder={language === "ar" ? "اكتب التنبيه لموظفي الفرع..." : "Write branch announcement..."}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAnnPriority("normal")}
+                          className={`px-3 py-1.5 rounded-xl font-bold border transition ${
+                            annPriority === "normal"
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                          }`}
+                        >
+                          {language === "ar" ? "عادي" : "Normal"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnnPriority("urgent")}
+                          className={`px-3 py-1.5 rounded-xl font-bold border transition ${
+                            annPriority === "urgent"
+                              ? "bg-rose-600 text-white border-rose-600"
+                              : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                          }`}
+                        >
+                          {language === "ar" ? "عاجل" : "Urgent"}
+                        </button>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={publishingAnn}
+                        className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition disabled:opacity-60"
+                      >
+                        {publishingAnn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        <span>{language === "ar" ? "نشر للفرع" : "Publish to Branch"}</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pe-1">
+                    {announcements.length === 0 ? (
+                      <div className="p-8 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center text-xs text-slate-400">
+                        {language === "ar" ? "لا توجد تعميمات خاصة بالفرع بعد." : "No branch announcements yet."}
+                      </div>
+                    ) : (
+                      announcements.map((ann) => {
+                        const brName = assignedBranches.find((b) => b.id === ann.branch_id)?.name || "";
+                        return (
+                          <div
+                            key={ann.id}
+                            className={`p-3.5 rounded-xl border flex items-start justify-between gap-3 ${
+                              ann.priority === "urgent"
+                                ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900"
+                                : "bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"
+                            }`}
+                          >
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                                  {ann.title}
+                                </span>
+                                {ann.priority === "urgent" && (
+                                  <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white">
+                                    {language === "ar" ? "عاجل" : "Urgent"}
+                                  </span>
+                                )}
+                                {brName && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    {brName}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                {ann.body}
+                              </p>
+                              <div className="text-[10px] text-slate-400">
+                                {ann.sender_name && `${language === "ar" ? "المرسل:" : "From:"} ${ann.sender_name} • `}
+                                {new Date(ann.created_at).toLocaleDateString("ar-SA", {
+                                  day: "numeric",
+                                  month: "short",
+                                })}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBranchAnnouncement(ann.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </>

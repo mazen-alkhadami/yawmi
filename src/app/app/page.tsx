@@ -534,7 +534,10 @@ export default function EmployeeApp() {
       const bData = branchRes.data || null;
       const sData = shiftRes.data || null;
       const allShifts = allShiftsRes.data || [];
-      const loadedAnnouncements = annRes.data || [];
+      const rawAnnouncements = annRes.data || [];
+      const loadedAnnouncements = rawAnnouncements.filter(
+        (ann: any) => !ann.branch_id || ann.branch_id === prof.branch_id
+      );
       const logData = todayLogRes.data || null;
       const logs = historyRes.data || [];
       const outReqsList = outReqsRes.data || [];
@@ -1778,15 +1781,36 @@ export default function EmployeeApp() {
                         />
                         <span>{announcements[0].title}</span>
                       </span>
-                      {announcements[0].priority === "urgent" && (
-                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white">
-                          {language === "ar" ? "عاجل" : "Urgent"}
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          {announcements[0].branch_id
+                            ? branch?.name || (language === "ar" ? "الفرع" : "Branch")
+                            : language === "ar"
+                            ? "جميع الفروع"
+                            : "All Branches"}
                         </span>
-                      )}
+                        {announcements[0].priority === "urgent" && (
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white">
+                            {language === "ar" ? "عاجل" : "Urgent"}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
                       {announcements[0].body}
                     </p>
+                    {announcements[0].sender_name && (
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {language === "ar" ? "المرسل:" : "From:"} {announcements[0].sender_name} •{" "}
+                        {announcements[0].sender_role === "supervisor"
+                          ? language === "ar"
+                            ? "مشرف الفرع"
+                            : "Branch Supervisor"
+                          : language === "ar"
+                          ? "مدير الشركة"
+                          : "Company Admin"}
+                      </p>
+                    )}
                     <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 block pt-0.5">
                       {language === "ar" ? "عرض كل التعميمات والتحديثات ←" : "View all announcements & updates →"}
                     </span>
@@ -2772,7 +2796,22 @@ export default function EmployeeApp() {
                     {language === "ar" ? "لا توجد تعميمات حالياً." : "No announcements yet."}
                   </div>
                 ) : (
-                  announcements.map((ann) => (
+                  announcements.map((ann) => {
+                    const scopeLabel = ann.branch_id
+                      ? branch?.name || (language === "ar" ? "فرعك" : "Your Branch")
+                      : language === "ar"
+                      ? "جميع الفروع"
+                      : "All Branches";
+                    const senderRoleLabel =
+                      ann.sender_role === "supervisor"
+                        ? language === "ar"
+                          ? "مشرف الفرع"
+                          : "Branch Supervisor"
+                        : language === "ar"
+                        ? "مدير الشركة"
+                        : "Company Admin";
+
+                    return (
                     <div
                       key={ann.id}
                       className={`p-3.5 rounded-2xl border space-y-1.5 ${
@@ -2781,29 +2820,44 @@ export default function EmployeeApp() {
                           : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-xs font-extrabold text-slate-900 dark:text-white">
                           {ann.title}
                         </span>
-                        {ann.priority === "urgent" && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white shrink-0">
-                            {language === "ar" ? "عاجل" : "Urgent"}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            {scopeLabel}
                           </span>
-                        )}
+                          {ann.priority === "urgent" && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white">
+                              {language === "ar" ? "عاجل" : "Urgent"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         {ann.body}
                       </p>
-                      <span className="text-[10px] text-slate-400 font-mono block">
-                        {new Date(ann.created_at).toLocaleDateString("ar-SA", {
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                      <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] text-slate-400 pt-0.5">
+                        {ann.sender_name ? (
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">
+                            {language === "ar" ? "المرسل:" : "From:"} {ann.sender_name} • {senderRoleLabel}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        <span className="font-mono">
+                          {new Date(ann.created_at).toLocaleDateString("ar-SA", {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
