@@ -945,15 +945,15 @@ export default function EmployeeApp() {
           <ThemeToggle />
           <button
             onClick={() => setActiveTab("profile")}
-            className="flex items-center gap-1.5 p-1 pe-2 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shadow-sm ${
+              activeTab === "profile"
+                ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400"
+                : "border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+            }`}
             title={profile?.full_name || t("app_tab_profile")}
+            aria-label={t("app_tab_profile")}
           >
-            <div className="w-6 h-6 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
-              {profile?.full_name?.charAt(0) || "U"}
-            </div>
-            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 max-w-[80px] truncate hidden sm:inline">
-              {profile?.full_name?.split(" ")[0]}
-            </span>
+            <User className="w-4 h-4" />
           </button>
         </div>
       </header>

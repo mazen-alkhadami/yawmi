@@ -2,9 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { YawmiLogo } from "@/components/yawmi-logo";
-import { LanguageToggle } from "@/components/language-toggle";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { PublicHeader } from "@/components/public-header";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ShieldCheck, ArrowRight, ArrowLeft, Lock, CheckCircle2, MapPin, Smartphone, Camera } from "lucide-react";
 
@@ -15,25 +13,7 @@ export default function PrivacyPolicyPage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-cairo">
       {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="transition hover:opacity-90">
-            <YawmiLogo size="md" showText={true} />
-          </Link>
-
-          <div className="flex items-center gap-2.5">
-            <LanguageToggle />
-            <ThemeToggle />
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
-            >
-              <ArrowIcon className="w-3.5 h-3.5" />
-              <span>{language === "ar" ? "الرئيسية" : "Home"}</span>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       {/* Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-14 space-y-8">

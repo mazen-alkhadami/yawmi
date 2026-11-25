@@ -3,8 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { YawmiLogo } from "@/components/yawmi-logo";
-import { LanguageToggle } from "@/components/language-toggle";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { PublicHeader } from "@/components/public-header";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
   Printer,
@@ -33,32 +32,9 @@ export default function UserGuidePage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-cairo">
       {/* Top Header - Hidden on Print */}
-      <header className="no-print border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="transition hover:opacity-90 flex items-center gap-2">
-            <YawmiLogo size="md" showText={true} />
-          </Link>
-
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20 transition"
-            >
-              <Printer className="w-4 h-4" />
-              <span>{language === "ar" ? "طباعة / حفظ كملف PDF" : "Print / Save as PDF"}</span>
-            </button>
-            <LanguageToggle />
-            <ThemeToggle />
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
-            >
-              <ArrowIcon className="w-3.5 h-3.5" />
-              <span>{language === "ar" ? "الرئيسية" : "Home"}</span>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <div className="no-print">
+        <PublicHeader showPrintAction={true} onPrint={handlePrint} />
+      </div>
 
       {/* Printable Document Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-10">
