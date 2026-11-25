@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformContact } from "@/lib/usePlatformContact";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,6 +18,7 @@ import {
   Award,
   FileText,
   MessageCircle,
+  Mail,
   Printer,
 } from "lucide-react";
 
@@ -27,6 +29,7 @@ interface PublicHeaderProps {
 
 export function PublicHeader({ showPrintAction, onPrint }: PublicHeaderProps) {
   const { t, dir, language } = useLanguage();
+  const { whatsappUrl, supportEmail } = usePlatformContact();
   const pathname = usePathname();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
@@ -266,16 +269,27 @@ export function PublicHeader({ showPrintAction, onPrint }: PublicHeaderProps) {
                 <span>{language === "ar" ? "انضمام موظف بكود الشركة" : "Join by Company Code"}</span>
               </Link>
 
-              {/* Direct WhatsApp Contact Button */}
-              <a
-                href="https://wa.me/967779628873"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full h-10 flex items-center justify-center gap-2 rounded-xl font-bold bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs transition"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span>{language === "ar" ? "تواصل مع الدعم عبر واتساب" : "WhatsApp Support"}</span>
-              </a>
+              {/* Dynamic Contact Buttons (WhatsApp / Email) */}
+              {whatsappUrl && (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full h-10 flex items-center justify-center gap-2 rounded-xl font-bold bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs transition"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>{language === "ar" ? "تواصل مع الدعم عبر واتساب" : "WhatsApp Support"}</span>
+                </a>
+              )}
+              {supportEmail && (
+                <a
+                  href={`mailto:${supportEmail}`}
+                  className="w-full h-10 flex items-center justify-center gap-2 rounded-xl font-bold bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs transition"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{language === "ar" ? "تواصل عبر البريد الإلكتروني" : "Email Support"}</span>
+                </a>
+              )}
             </div>
           </div>
         </div>

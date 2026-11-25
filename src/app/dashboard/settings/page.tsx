@@ -5,6 +5,7 @@ import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { applyDynamicThemeColor } from "@/lib/themeColor";
 import {
   Settings,
   Building2,
@@ -28,6 +29,12 @@ import {
   MessageSquare,
   ChevronDown,
   ChevronUp,
+  Upload,
+  Mail,
+  Phone,
+  FileText,
+  MapPin,
+  Image as ImageIcon,
 } from "lucide-react";
 
 interface UpgradeRequest {
@@ -44,10 +51,13 @@ interface PlatformSettingsData {
   commercial_reg_number: string | null;
   freelance_cert_number: string | null;
   sbc_verification_url: string | null;
+  support_whatsapp?: string | null;
+  support_email?: string | null;
   bank_transfer_details: {
     bank_name?: string;
     account_name?: string;
     iban?: string;
+    account_number?: string;
   } | null;
 }
 
@@ -60,6 +70,13 @@ export default function CompanySettingsPage() {
 
   // Profile / Branding State
   const [companyName, setCompanyName] = useState("");
+  const [companyPhone, setCompanyPhone] = useState("");
+  const [companyEmail, setCompanyEmail] = useState("");
+  const [commercialRegister, setCommercialRegister] = useState("");
+  const [companyAddress, setCompanyAddress] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoError, setLogoError] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#4F46E5");
   const [copiedCode, setCopiedCode] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -85,12 +102,26 @@ export default function CompanySettingsPage() {
   useEffect(() => {
     if (company?.id) {
       setCompanyName(company.name || "");
+      setCompanyPhone(company.phone || "");
+      setCompanyEmail(company.email || "");
+      setCommercialRegister(company.commercial_register || "");
+      setCompanyAddress(company.address || "");
+      setLogoUrl(company.logo_url || "");
       if (company.primary_color) {
         setPrimaryColor(company.primary_color);
       }
       loadSettingsData();
     }
-  }, [company?.id, company?.name, company?.primary_color]);
+  }, [
+    company?.id,
+    company?.name,
+    company?.phone,
+    company?.email,
+    company?.commercial_register,
+    company?.address,
+    company?.logo_url,
+    company?.primary_color,
+  ]);
 
   const loadSettingsData = async () => {
     if (!company?.id) return;
@@ -165,6 +196,36 @@ export default function CompanySettingsPage() {
     }
   };
 
+  // Upload Company Logo to Supabase Storage
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !company?.id) return;
+    setLogoError("");
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError(dir === "rtl" ? "الحد الأقصى لحجم الشعار 2 ميجابايت" : "Max logo size is 2MB");
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const filePath = `${company.id}/logo_${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from("company-logos")
+        .upload(filePath, file, { upsert: true, contentType: file.type });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage.from("company-logos").getPublicUrl(filePath);
+      setLogoUrl(publicUrlData.publicUrl);
+    } catch (err: any) {
+      console.error("Logo upload error:", err);
+      setLogoError(err?.message || (dir === "rtl" ? "تعذر رفع الشعار" : "Failed to upload logo"));
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   // Save Company Profile / Branding
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,24 +234,29 @@ export default function CompanySettingsPage() {
     setProfileSuccess(false);
 
     try {
+      const payload = {
+        name: companyName.trim(),
+        phone: companyPhone.trim() || null,
+        email: companyEmail.trim() || null,
+        commercial_register: commercialRegister.trim() || null,
+        address: companyAddress.trim() || null,
+        logo_url: logoUrl.trim() || null,
+        primary_color: primaryColor,
+      };
+
       const { data, error } = await supabase
         .from("companies")
-        .update({
-          name: companyName.trim(),
-          primary_color: primaryColor,
-        })
+        .update(payload)
         .eq("id", company.id)
-        .select("id, name, primary_color, invite_code, plan, max_branches, max_employees, status, subscription_ends_at")
+        .select("id, name, primary_color, logo_url, phone, email, commercial_register, address, invite_code, plan, max_branches, max_employees, status, subscription_ends_at")
         .single();
 
       if (error) throw error;
 
       // Update state and layout context immediately so brand color applies instantly
+      applyDynamicThemeColor(primaryColor);
       if (data) {
-        updateCompanyLocally({
-          name: data.name,
-          primary_color: data.primary_color,
-        });
+        updateCompanyLocally(data);
       }
 
       setProfileSuccess(true);
@@ -314,6 +380,106 @@ export default function CompanySettingsPage() {
                   onChange={(e) => setCompanyName(e.target.value)}
                   className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold"
                 />
+              </div>
+
+              {/* Company Logo Upload & Preview */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  {dir === "rtl" ? "شعار الشركة (يظهر في بطاقة الموظف الذكية)" : "Company Logo (shown on Employee Smart ID)"}
+                </label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex items-center justify-center overflow-hidden shrink-0">
+                    {logoUrl ? (
+                      <img src={logoUrl} alt="Company Logo" className="w-full h-full object-contain p-1.5" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-slate-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-[200px] space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition">
+                        {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        <span>{uploadingLogo ? (dir === "rtl" ? "جاري الرفع..." : "Uploading...") : (dir === "rtl" ? "رفع شعار جديد" : "Upload Logo")}</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                          disabled={uploadingLogo}
+                        />
+                      </label>
+                      {logoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setLogoUrl("")}
+                          className="px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                        >
+                          {dir === "rtl" ? "إزالة" : "Remove"}
+                        </button>
+                      )}
+                    </div>
+                    {logoError && <p className="text-[11px] text-rose-600 font-bold">{logoError}</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Extended Company Profile Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{dir === "rtl" ? "رقم الهاتف الرسمي" : "Official Phone"}</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={companyPhone}
+                    onChange={(e) => setCompanyPhone(e.target.value)}
+                    placeholder="+966 5X XXX XXXX"
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{dir === "rtl" ? "البريد الإلكتروني للشركة" : "Company Email"}</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={companyEmail}
+                    onChange={(e) => setCompanyEmail(e.target.value)}
+                    placeholder="hr@company.com"
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{dir === "rtl" ? "رقم السجل التجاري" : "Commercial Register"}</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={commercialRegister}
+                    onChange={(e) => setCommercialRegister(e.target.value)}
+                    placeholder="1010XXXXXX"
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{dir === "rtl" ? "العنوان الوطني / المقر" : "Headquarters Address"}</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={companyAddress}
+                    onChange={(e) => setCompanyAddress(e.target.value)}
+                    placeholder={dir === "rtl" ? "الرياض، حي العليا..." : "Riyadh, Al Olaya..."}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-bold"
+                  />
+                </div>
               </div>
 
               {/* Primary Color Picker */}
@@ -553,81 +719,114 @@ export default function CompanySettingsPage() {
             </div>
           </div>
 
-          {/* WhatsApp Upgrade Option (Fast & Flexible for Saudi, Yemen & GCC) */}
-          <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="space-y-1 text-center md:text-start">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-xs font-bold">
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>ترقية فورية ميسرة</span>
+          {/* Dynamic Contact Upgrade Banner (WhatsApp / Email) */}
+          {(platformSettings?.support_whatsapp?.trim() || platformSettings?.support_email?.trim()) && (
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-center md:text-start">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-xs font-bold">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>ترقية فورية ميسرة</span>
+                </div>
+                <h3 className="text-base font-extrabold">تواصل معنا لإتمام الترقية المباشرة</h3>
+                <p className="text-xs text-emerald-100 max-w-xl">
+                  نوفر لك خيارات تحويل بنكي ودفع مرن مع تفعيل فوري للباقة عبر فريق خدمة العملاء.
+                </p>
               </div>
-              <h3 className="text-base font-extrabold">تواصل عبر واتساب لإتمام الترقية المباشرة</h3>
-              <p className="text-xs text-emerald-100 max-w-xl">
-                للشركات في المملكة العربية السعودية واليمن وكافة الدول: نوفر لك خيارات تحويل بنكي محلي ودفع مرن مع تفعيل فوري للباقة عبر فريق خدمة العملاء.
-              </p>
-            </div>
 
-            <a
-              href={`https://wa.me/967779628873?text=${encodeURIComponent(
-                `مرحباً فريق يومي، أود ترقية اشتراك منشأتنا (${company?.name || ""}) إلى باقة ${requestedPlan.toUpperCase()} (${billingCycle === "yearly" ? "سنوي" : "شهري"}). كود الشركة: ${company?.invite_code || ""}`
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-5 py-2.5 rounded-xl font-bold bg-white text-emerald-950 hover:bg-emerald-50 transition text-xs shadow-md shrink-0 flex items-center gap-2"
-            >
-              <MessageSquare className="w-4 h-4 text-emerald-600" />
-              <span>تواصل عبر واتساب للترقية الآن</span>
-            </a>
-          </div>
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                {platformSettings?.support_whatsapp?.trim() && (
+                  <a
+                    href={`https://wa.me/${platformSettings.support_whatsapp.replace(/[^\d]/g, "")}?text=${encodeURIComponent(
+                      `مرحباً فريق يومي، أود ترقية اشتراك منشأتنا (${company?.name || ""}) إلى باقة ${requestedPlan.toUpperCase()} (${billingCycle === "yearly" ? "سنوي" : "شهري"}). كود الشركة: ${company?.invite_code || ""}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-5 py-2.5 rounded-xl font-bold bg-white text-emerald-950 hover:bg-emerald-50 transition text-xs shadow-md flex items-center gap-2"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <span>تواصل عبر واتساب</span>
+                  </a>
+                )}
+                {platformSettings?.support_email?.trim() && (
+                  <a
+                    href={`mailto:${platformSettings.support_email.trim()}?subject=${encodeURIComponent(
+                      `طلب ترقية باقة - ${company?.name || ""}`
+                    )}`}
+                    className="px-5 py-2.5 rounded-xl font-bold bg-white/15 hover:bg-white/25 text-white border border-white/30 transition text-xs shadow-md flex items-center gap-2"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>تواصل عبر البريد</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Official Bank Transfer Details & Upgrade Request Form */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Bank Transfer Details (Optional / Collapsible) */}
-            <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-700">
-                <h3 className="text-sm font-bold flex items-center gap-2">
-                  <Landmark className="w-4 h-4 text-indigo-600" />
-                  <span>{t("bank_transfer_info")}</span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowBankDetails(!showBankDetails)}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                >
-                  <span>{showBankDetails ? "إخفاء التفاصيل" : "عرض بيانات الحساب"}</span>
-                  {showBankDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
+            {/* Bank Transfer Details (Only rendered if Super Admin filled them) */}
+            {(platformSettings?.bank_transfer_details?.bank_name?.trim() ||
+              platformSettings?.bank_transfer_details?.account_name?.trim() ||
+              platformSettings?.bank_transfer_details?.iban?.trim() ||
+              platformSettings?.bank_transfer_details?.account_number?.trim()) && (
+              <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-700">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <Landmark className="w-4 h-4 text-indigo-600" />
+                    <span>{t("bank_transfer_info")}</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowBankDetails(!showBankDetails)}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <span>{showBankDetails ? "إخفاء التفاصيل" : "عرض بيانات الحساب"}</span>
+                    {showBankDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                {showBankDetails ? (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs space-y-2.5 animate-fade-in-up">
+                    {platformSettings?.bank_transfer_details?.bank_name?.trim() && (
+                      <div>
+                        <span className="text-slate-400 block">{t("bank_name")}:</span>
+                        <span className="font-bold">{platformSettings.bank_transfer_details.bank_name}</span>
+                      </div>
+                    )}
+
+                    {platformSettings?.bank_transfer_details?.account_name?.trim() && (
+                      <div>
+                        <span className="text-slate-400 block">{t("account_name")}:</span>
+                        <span className="font-bold">{platformSettings.bank_transfer_details.account_name}</span>
+                      </div>
+                    )}
+
+                    {platformSettings?.bank_transfer_details?.account_number?.trim() && (
+                      <div>
+                        <span className="text-slate-400 block">{dir === "rtl" ? "رقم الحساب" : "Account Number"}:</span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-100 block">
+                          {platformSettings.bank_transfer_details.account_number}
+                        </span>
+                      </div>
+                    )}
+
+                    {platformSettings?.bank_transfer_details?.iban?.trim() && (
+                      <div>
+                        <span className="text-slate-400 block">{t("iban")}:</span>
+                        <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm block">
+                          {platformSettings.bank_transfer_details.iban}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 text-xs text-slate-500 text-center space-y-1">
+                    <p className="font-bold text-slate-700 dark:text-slate-300">التحويل البنكي المباشر (اختياري)</p>
+                    <p>انقر على "عرض بيانات الحساب" للاطلاع على الآيبان والحساب البنكي.</p>
+                  </div>
+                )}
               </div>
-
-              {showBankDetails ? (
-                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs space-y-2.5 animate-fade-in-up">
-                  <div>
-                    <span className="text-slate-400 block">{t("bank_name")}:</span>
-                    <span className="font-bold">
-                      {platformSettings?.bank_transfer_details?.bank_name || "مصرف الراجحي (Al Rajhi Bank)"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 block">{t("account_name")}:</span>
-                    <span className="font-bold">
-                      {platformSettings?.bank_transfer_details?.account_name || "مؤسسة يومي لتقنية المعلومات"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 block">{t("iban")}:</span>
-                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm block">
-                      {platformSettings?.bank_transfer_details?.iban || "SA4480000456608010123456"}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 text-xs text-slate-500 text-center space-y-1">
-                  <p className="font-bold text-slate-700 dark:text-slate-300">التحويل البنكي المباشر (اختياري)</p>
-                  <p>انقر على "عرض بيانات الحساب" للاطلاع على الآيبان والحساب البنكي، أو راسلنا عبر واتساب أعلاه.</p>
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Upgrade Submission Form */}
             <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">

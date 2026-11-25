@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { ProductTour, TourStep } from "@/components/ProductTour";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
+import { applyDynamicThemeColor } from "@/lib/themeColor";
 import {
   LayoutDashboard,
   MapPin,
@@ -26,7 +27,24 @@ import {
   HelpCircle,
   Activity,
   ShieldCheck,
+  Sparkles,
+  MessageCircle,
+  Mail,
+  Landmark,
+  Check,
+  Copy,
 } from "lucide-react";
+
+export interface PlatformContactSettings {
+  support_whatsapp?: string | null;
+  support_email?: string | null;
+  bank_transfer_details?: {
+    bank_name?: string;
+    account_name?: string;
+    iban?: string;
+    account_number?: string;
+  } | null;
+}
 
 export interface CompanyContextData {
   company: {
@@ -39,6 +57,11 @@ export interface CompanyContextData {
     status: string;
     subscription_ends_at?: string | null;
     primary_color?: string | null;
+    logo_url?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    commercial_register?: string | null;
+    address?: string | null;
   } | null;
   profile: {
     id: string;
@@ -51,17 +74,21 @@ export interface CompanyContextData {
       can_close_month?: boolean;
     };
   } | null;
+  platformSettings: PlatformContactSettings | null;
   loading: boolean;
   refreshData: () => Promise<void>;
   updateCompanyLocally: (data: Partial<NonNullable<CompanyContextData["company"]>>) => void;
+  openUpgradeModal: () => void;
 }
 
 export const CompanyDashboardContext = React.createContext<CompanyContextData>({
   company: null,
   profile: null,
+  platformSettings: null,
   loading: true,
   refreshData: async () => {},
   updateCompanyLocally: () => {},
+  openUpgradeModal: () => {},
 });
 
 export default function DashboardLayout({
@@ -78,13 +105,18 @@ export default function DashboardLayout({
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
+  const [platformSettings, setPlatformSettings] = useState<PlatformContactSettings | null>(null);
   const [adminTourOpen, setAdminTourOpen] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [copiedBankField, setCopiedBankField] = useState<string | null>(null);
 
   const fetchSessionAndCompany = async () => {
-    const cached = getCachedData<{ profile: any; company: any }>("dashboard_layout");
+    const cached = getCachedData<{ profile: any; company: any; platformSettings?: PlatformContactSettings | null }>("dashboard_layout");
     if (cached?.profile) {
       setProfile(cached.profile);
       setCompany(cached.company || null);
+      if (cached.platformSettings) setPlatformSettings(cached.platformSettings);
+      applyDynamicThemeColor(cached.company?.primary_color);
       setLoading(false);
     }
 
@@ -104,17 +136,27 @@ export default function DashboardLayout({
         return;
       }
 
-      // 2. Fetch profile & company in ONE single join query
-      const { data: prof, error: profErr } = await supabase
-        .from("profiles")
-        .select(`
-          id, full_name, role, company_id, status, has_completed_tour,
-          companies:company_id (
-            id, name, invite_code, plan, max_branches, max_employees, status, subscription_ends_at, primary_color
-          )
-        `)
-        .eq("id", userId)
-        .maybeSingle();
+      // 2. Fetch profile & company + platform_settings in parallel
+      const [profRes, platRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select(`
+            id, full_name, role, company_id, status, has_completed_tour,
+            companies:company_id (
+              id, name, invite_code, plan, max_branches, max_employees, status, subscription_ends_at,
+              primary_color, logo_url, phone, email, commercial_register, address
+            )
+          `)
+          .eq("id", userId)
+          .maybeSingle(),
+        supabase
+          .from("platform_settings")
+          .select("support_whatsapp, support_email, bank_transfer_details")
+          .eq("id", 1)
+          .maybeSingle(),
+      ]);
+
+      const { data: prof, error: profErr } = profRes;
 
       if (profErr || !prof) {
         clearUserCache();
@@ -125,7 +167,11 @@ export default function DashboardLayout({
       setProfile(prof);
       const compData = (prof as any).companies || null;
       setCompany(compData);
-      setCachedData("dashboard_layout", { profile: prof, company: compData });
+      applyDynamicThemeColor(compData?.primary_color);
+
+      const platData = (platRes.data as PlatformContactSettings | null) || null;
+      setPlatformSettings(platData);
+      setCachedData("dashboard_layout", { profile: prof, company: compData, platformSettings: platData });
 
       if (
         !prof.has_completed_tour &&
@@ -144,7 +190,10 @@ export default function DashboardLayout({
   const updateCompanyLocally = (data: Partial<NonNullable<CompanyContextData["company"]>>) => {
     setCompany((prev: any) => {
       const next = prev ? { ...prev, ...data } : null;
-      setCachedData("dashboard_layout", { profile, company: next });
+      if (data.primary_color !== undefined) {
+        applyDynamicThemeColor(data.primary_color);
+      }
+      setCachedData("dashboard_layout", { profile, company: next, platformSettings });
       return next;
     });
   };
@@ -249,14 +298,43 @@ export default function DashboardLayout({
 
   const brandColor = company?.primary_color || "#4F46E5";
 
+  const isUpgradeEligible =
+    !company?.plan || ["starter", "free", "basic"].includes(company.plan.toLowerCase());
+
+  const whatsappClean = platformSettings?.support_whatsapp?.replace(/[^\d]/g, "") || "";
+  const whatsappUrl = whatsappClean
+    ? `https://wa.me/${whatsappClean}?text=${encodeURIComponent(
+        language === "ar"
+          ? `مرحباً، أرغب في ترقية باقة شركة "${company?.name || ""}" في منصة يومي.`
+          : `Hello, I would like to upgrade the plan for "${company?.name || ""}" on Yawmi.`
+      )}`
+    : "";
+  const supportEmail = platformSettings?.support_email?.trim() || "";
+  const bankDetails = platformSettings?.bank_transfer_details;
+  const hasBankDetails = Boolean(
+    bankDetails &&
+      (bankDetails.bank_name?.trim() ||
+        bankDetails.account_name?.trim() ||
+        bankDetails.iban?.trim() ||
+        bankDetails.account_number?.trim())
+  );
+
+  const handleCopyBank = (field: string, val: string) => {
+    navigator.clipboard.writeText(val);
+    setCopiedBankField(field);
+    setTimeout(() => setCopiedBankField(null), 1800);
+  };
+
   return (
     <CompanyDashboardContext.Provider
       value={{
         company,
         profile,
+        platformSettings,
         loading,
         refreshData: fetchSessionAndCompany,
         updateCompanyLocally,
+        openUpgradeModal: () => setUpgradeModalOpen(true),
       }}
     >
       <div
@@ -312,6 +390,16 @@ export default function DashboardLayout({
 
             <NotificationsBell companyId={company?.id} lang={language} />
             <div className="hidden lg:flex items-center gap-2">
+              {isUpgradeEligible && (
+                <button
+                  type="button"
+                  onClick={() => setUpgradeModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-sm transition"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{language === "ar" ? "ترقية الباقة" : "Upgrade Plan"}</span>
+                </button>
+              )}
               <LanguageToggle />
               <ThemeToggle />
 
@@ -419,6 +507,19 @@ export default function DashboardLayout({
                   <LanguageToggle />
                   <ThemeToggle />
                 </div>
+                {isUpgradeEligible && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      setUpgradeModalOpen(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold transition shadow-sm"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{language === "ar" ? "ترقية الباقة" : "Upgrade Plan"}</span>
+                  </button>
+                )}
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/50 transition shadow-sm"
@@ -444,6 +545,180 @@ export default function DashboardLayout({
         onComplete={handleCompleteAdminTour}
         onSkip={handleCompleteAdminTour}
       />
+
+      {/* Package Upgrade Modal */}
+      {upgradeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-6">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {language === "ar" ? "ترقية باقة الاشتراك" : "Upgrade Subscription Plan"}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {language === "ar"
+                      ? `الباقة الحالية: ${company?.plan || "starter"} • الحد الأقصى: ${company?.max_branches || 1} فرع / ${company?.max_employees || 10} موظف`
+                      : `Current plan: ${company?.plan || "starter"} • Limit: ${company?.max_branches || 1} branch / ${company?.max_employees || 10} employees`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUpgradeModalOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white/70 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+              {/* Plans Overview */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-4 rounded-2xl border-2 border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
+                      {language === "ar" ? "الباقة الاحترافية (Pro)" : "Pro Plan"}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
+                      {language === "ar" ? "الأكثر طلباً" : "Popular"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {language === "ar"
+                      ? "حتى 10 فروع • 150 موظف • تقارير PDF/Excel متقدمة • تعميمات فورية وسجل إدارة كامل."
+                      : "Up to 10 branches • 150 employees • Full PDF/Excel reports • Announcements & Audit log."}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      {language === "ar" ? "باقة المؤسسات (Enterprise)" : "Enterprise Plan"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {language === "ar"
+                      ? "فروع وموظفون غير محدودين • دعم فني مخصص • تخصيص كامل للهوية والتقارير."
+                      : "Unlimited branches & employees • Dedicated support • Full branding & custom setup."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Conditional Bank Transfer Details (only shown if Super Admin filled them) */}
+              {hasBankDetails && (
+                <div className="p-4 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-2.5">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold text-sm">
+                    <Landmark className="w-4 h-4" />
+                    <span>{language === "ar" ? "بيانات التحويل البنكي" : "Bank Transfer Details"}</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    {bankDetails?.bank_name?.trim() && (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40">
+                        <span className="block text-[11px] text-slate-400">{language === "ar" ? "اسم البنك" : "Bank Name"}</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-100">{bankDetails.bank_name}</span>
+                      </div>
+                    )}
+                    {bankDetails?.account_name?.trim() && (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40">
+                        <span className="block text-[11px] text-slate-400">{language === "ar" ? "اسم الحساب" : "Account Holder"}</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-100">{bankDetails.account_name}</span>
+                      </div>
+                    )}
+                    {bankDetails?.account_number?.trim() && (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="block text-[11px] text-slate-400">{language === "ar" ? "رقم الحساب" : "Account Number"}</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-100 break-all">{bankDetails.account_number}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyBank("acc", bankDetails.account_number!)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 shrink-0"
+                        >
+                          {copiedBankField === "acc" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    )}
+                    {bankDetails?.iban?.trim() && (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="block text-[11px] text-slate-400">IBAN</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-100 break-all">{bankDetails.iban}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyBank("iban", bankDetails.iban!)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 shrink-0"
+                        >
+                          {copiedBankField === "iban" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Contact Actions (WhatsApp / Email) */}
+              {(whatsappUrl || supportEmail) && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {language === "ar"
+                      ? "تواصل معنا لإتمام الترقية وتفعيل الباقة:"
+                      : "Contact us to complete your upgrade and activate your plan:"}
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {whatsappUrl && (
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 min-w-[180px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition shadow-sm"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>{language === "ar" ? "تواصل عبر واتساب" : "Chat on WhatsApp"}</span>
+                      </a>
+                    )}
+                    {supportEmail && (
+                      <a
+                        href={`mailto:${supportEmail}?subject=${encodeURIComponent(
+                          language === "ar"
+                            ? `طلب ترقية باقة - ${company?.name || ""}`
+                            : `Plan Upgrade Request - ${company?.name || ""}`
+                        )}`}
+                        className="flex-1 min-w-[180px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition shadow-sm"
+                      >
+                        <Mail className="w-4 h-4" />
+                        <span>{language === "ar" ? "تواصل عبر البريد الإلكتروني" : "Contact via Email"}</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                <Link
+                  href="/dashboard/settings"
+                  onClick={() => setUpgradeModalOpen(false)}
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  {language === "ar" ? "أو إرسال طلب الترقية من صفحة الإعدادات ←" : "Or submit upgrade request in Settings →"}
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setUpgradeModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                >
+                  {language === "ar" ? "إغلاق" : "Close"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </CompanyDashboardContext.Provider>
   );
 }

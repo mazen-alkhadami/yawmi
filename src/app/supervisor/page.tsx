@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
+import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -23,6 +24,7 @@ import {
   Check,
   X,
   Loader2,
+  Palette,
   Filter,
   ShieldCheck,
   ShieldAlert,
@@ -123,6 +125,9 @@ export default function BranchSupervisorPage() {
 
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
+  const [companyPrimaryColor, setCompanyPrimaryColor] = useState<string>("#4F46E5");
+  const [selectedThemeColor, setSelectedThemeColor] = useState<string>("#4F46E5");
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [assignedBranches, setAssignedBranches] = useState<Branch[]>([]);
   const [permissions, setPermissions] = useState<SupervisorPermissions>({
     can_approve_employees: false,
@@ -229,6 +234,24 @@ export default function BranchSupervisorPage() {
       }
 
       setProfile(profileData);
+
+      // Load company primary color fallback & apply personal or company theme color
+      let compColor = "#4F46E5";
+      if (profileData.company_id) {
+        const { data: compRow } = await supabase
+          .from("companies")
+          .select("primary_color")
+          .eq("id", profileData.company_id)
+          .maybeSingle();
+        if (compRow?.primary_color) compColor = compRow.primary_color;
+      }
+      setCompanyPrimaryColor(compColor);
+      const activeColor =
+        profileData.theme_color ||
+        (typeof window !== "undefined" ? localStorage.getItem(`yawmi_theme_color_${user.id}`) : null) ||
+        compColor;
+      setSelectedThemeColor(activeColor);
+      applyDynamicThemeColor(activeColor);
 
       const perms = profileData.supervisor_permissions || {};
       const parsedPermissions: SupervisorPermissions = {
@@ -624,7 +647,69 @@ export default function BranchSupervisorPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setThemePickerOpen((prev) => !prev)}
+                className="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                title={language === "ar" ? "لون الواجهة" : "Accent Color"}
+              >
+                <Palette className="w-4 h-4" />
+              </button>
+              {themePickerOpen && (
+                <div className="absolute end-0 mt-2 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 space-y-2.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-slate-700 dark:text-slate-200">
+                      {language === "ar" ? "لون الواجهة المفضل" : "Accent Color"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSelectedThemeColor(companyPrimaryColor);
+                        applyDynamicThemeColor(companyPrimaryColor);
+                        setThemePickerOpen(false);
+                        if (profile?.id) {
+                          if (typeof window !== "undefined") {
+                            localStorage.removeItem(`yawmi_theme_color_${profile.id}`);
+                          }
+                          await supabase.from("profiles").update({ theme_color: null }).eq("id", profile.id);
+                        }
+                      }}
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      {language === "ar" ? "لون الشركة" : "Company"}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {THEME_COLOR_PRESETS.map((preset) => (
+                      <button
+                        key={preset.hex}
+                        type="button"
+                        onClick={async () => {
+                          setSelectedThemeColor(preset.hex);
+                          applyDynamicThemeColor(preset.hex);
+                          setThemePickerOpen(false);
+                          if (profile?.id) {
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem(`yawmi_theme_color_${profile.id}`, preset.hex);
+                            }
+                            await supabase.from("profiles").update({ theme_color: preset.hex }).eq("id", profile.id);
+                          }
+                        }}
+                        className={`w-6 h-6 rounded-full border-2 transition ${
+                          selectedThemeColor?.toLowerCase() === preset.hex.toLowerCase()
+                            ? "border-slate-900 dark:border-white scale-110"
+                            : "border-transparent"
+                        }`}
+                        style={{ backgroundColor: preset.hex }}
+                        title={language === "ar" ? preset.nameAr : preset.nameEn}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <LanguageToggle />
             <ThemeToggle />
             <button

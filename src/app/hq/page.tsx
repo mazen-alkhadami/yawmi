@@ -72,8 +72,11 @@ interface PlatformSettingsState {
   commercial_reg_number: string;
   freelance_cert_number: string;
   sbc_verification_url: string;
+  support_whatsapp: string;
+  support_email: string;
   bank_name: string;
   account_name: string;
+  account_number: string;
   iban: string;
 }
 
@@ -122,8 +125,11 @@ export default function SuperAdminHQPage() {
     commercial_reg_number: "",
     freelance_cert_number: "",
     sbc_verification_url: "",
+    support_whatsapp: "",
+    support_email: "",
     bank_name: "",
     account_name: "",
+    account_number: "",
     iban: "",
   });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -248,8 +254,11 @@ export default function SuperAdminHQPage() {
           commercial_reg_number: platRes.data.commercial_reg_number || "",
           freelance_cert_number: platRes.data.freelance_cert_number || "",
           sbc_verification_url: platRes.data.sbc_verification_url || "",
+          support_whatsapp: platRes.data.support_whatsapp || "",
+          support_email: platRes.data.support_email || "",
           bank_name: bank.bank_name || "",
           account_name: bank.account_name || "",
+          account_number: bank.account_number || "",
           iban: bank.iban || "",
         };
         setSettings(nextSettings);
@@ -355,8 +364,11 @@ export default function SuperAdminHQPage() {
           commercial_reg_number: data.commercial_reg_number || "",
           freelance_cert_number: data.freelance_cert_number || "",
           sbc_verification_url: data.sbc_verification_url || "",
+          support_whatsapp: data.support_whatsapp || "",
+          support_email: data.support_email || "",
           bank_name: bank.bank_name || "",
           account_name: bank.account_name || "",
+          account_number: bank.account_number || "",
           iban: bank.iban || "",
         });
       }
@@ -524,9 +536,12 @@ export default function SuperAdminHQPage() {
         commercial_reg_number: settings.commercial_reg_number.trim() || null,
         freelance_cert_number: settings.freelance_cert_number.trim() || null,
         sbc_verification_url: settings.sbc_verification_url.trim() || null,
+        support_whatsapp: settings.support_whatsapp.trim() || null,
+        support_email: settings.support_email.trim() || null,
         bank_transfer_details: {
           bank_name: settings.bank_name.trim(),
           account_name: settings.account_name.trim(),
+          account_number: settings.account_number.trim(),
           iban: settings.iban.trim(),
         },
         updated_at: new Date().toISOString(),
@@ -1204,18 +1219,50 @@ export default function SuperAdminHQPage() {
                   </div>
                 )}
 
-                <form onSubmit={handleSavePlatformSettings} className="space-y-4 text-xs">
+                <form onSubmit={handleSavePlatformSettings} className="space-y-5 text-xs">
+                  {/* Dynamic Support Contact Channels */}
+                  <div className="space-y-3 pb-4 border-b border-slate-100 dark:border-slate-700">
+                    <h3 className="font-bold text-slate-500 dark:text-slate-400">
+                      قنوات التواصل والدعم (تظهر ديناميكياً في نافذة الترقية والصفحات العامة — اترك الحقل فارغاً لإخفائه)
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          رقم الواتساب (WhatsApp)
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.support_whatsapp}
+                          onChange={(e) => setSettings({ ...settings, support_whatsapp: e.target.value })}
+                          placeholder="9665XXXXXXXX"
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          البريد الإلكتروني للدعم والمبيعات
+                        </label>
+                        <input
+                          type="email"
+                          value={settings.support_email}
+                          onChange={(e) => setSettings({ ...settings, support_email: e.target.value })}
+                          placeholder="support@yawmi.app"
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-3">
                     <h3 className="font-bold text-slate-500 dark:text-slate-400">
-                      بيانات الحساب البنكي الرسمي لتحويل الاشتراكات
+                      بيانات الحساب البنكي الرسمي لتحويل الاشتراكات (اتركها فارغة لإخفاء التحويل البنكي في نافذة الترقية)
                     </h3>
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {t("bank_name")} *
+                        {t("bank_name")}
                       </label>
                       <input
                         type="text"
-                        required
                         value={settings.bank_name}
                         onChange={(e) => setSettings({ ...settings, bank_name: e.target.value })}
                         placeholder="مصرف الراجحي (Al Rajhi Bank)"
@@ -1225,11 +1272,10 @@ export default function SuperAdminHQPage() {
 
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {t("account_name")} *
+                        {t("account_name")}
                       </label>
                       <input
                         type="text"
-                        required
                         value={settings.account_name}
                         onChange={(e) => setSettings({ ...settings, account_name: e.target.value })}
                         placeholder="مؤسسة يومي لتقنية المعلومات"
@@ -1237,18 +1283,32 @@ export default function SuperAdminHQPage() {
                       />
                     </div>
 
-                    <div>
-                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {t("iban")} *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={settings.iban}
-                        onChange={(e) => setSettings({ ...settings, iban: e.target.value })}
-                        placeholder="SA4480000456608010123456"
-                        className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          رقم الحساب (Account Number)
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.account_number}
+                          onChange={(e) => setSettings({ ...settings, account_number: e.target.value })}
+                          placeholder="456608010123456"
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          {t("iban")}
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.iban}
+                          onChange={(e) => setSettings({ ...settings, iban: e.target.value })}
+                          placeholder="SA4480000456608010123456"
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                        />
+                      </div>
                     </div>
                   </div>
 

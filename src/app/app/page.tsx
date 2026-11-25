@@ -26,6 +26,7 @@ import {
   setSessionUnlocked,
 } from "@/lib/attendance/quick-unlock";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
+import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
 import {
   Home,
   History,
@@ -148,6 +149,8 @@ export default function EmployeeApp() {
   // User & Company Data
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
+  const [selectedThemeColor, setSelectedThemeColor] = useState<string>("#4F46E5");
   const [branch, setBranch] = useState<any>(null);
   const [shift, setShift] = useState<any>(null);
   const [availableShifts, setAvailableShifts] = useState<any[]>([]);
@@ -479,6 +482,7 @@ export default function EmployeeApp() {
 
       // Run all independent queries in parallel
       const [
+        companyRes,
         branchRes,
         shiftRes,
         allShiftsRes,
@@ -488,6 +492,9 @@ export default function EmployeeApp() {
         outReqsRes,
         inReqsRes,
       ] = await Promise.all([
+        prof.company_id
+          ? supabase.from("companies").select("id, name, logo_url, primary_color").eq("id", prof.company_id).maybeSingle()
+          : Promise.resolve({ data: null }),
         prof.branch_id
           ? supabase.from("branches").select("*").eq("id", prof.branch_id).single()
           : Promise.resolve({ data: null }),
@@ -533,6 +540,7 @@ export default function EmployeeApp() {
           .order("created_at", { ascending: false }),
       ]);
 
+      const compData = companyRes.data || null;
       const bData = branchRes.data || null;
       const sData = shiftRes.data || null;
       const allShifts = allShiftsRes.data || [];
@@ -544,6 +552,15 @@ export default function EmployeeApp() {
       const logs = historyRes.data || [];
       const outReqsList = outReqsRes.data || [];
       const inReqsList = inReqsRes.data || [];
+
+      const activeColor =
+        prof.theme_color ||
+        (typeof window !== "undefined" ? localStorage.getItem(`yawmi_theme_color_${authUser.id}`) : null) ||
+        compData?.primary_color ||
+        "#4F46E5";
+      setCompanyInfo(compData);
+      setSelectedThemeColor(activeColor);
+      applyDynamicThemeColor(activeColor);
 
       setBranch(bData);
       setShift(sData);
@@ -558,6 +575,7 @@ export default function EmployeeApp() {
       setCachedData("employee_app", {
         user: { id: authUser.id, email: authUser.email },
         profile: prof,
+        companyInfo: compData,
         branch: bData,
         shift: sData,
         availableShifts: allShifts,
@@ -2364,13 +2382,68 @@ export default function EmployeeApp() {
                 </div>
 
                 {/* Preferences */}
-                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">
-                    اللغة والمظهر
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <LanguageToggle />
-                    <ThemeToggle />
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      اللغة والمظهر
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <LanguageToggle />
+                      <ThemeToggle />
+                    </div>
+                  </div>
+
+                  {/* Personal Accent Theme Color */}
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {language === "ar" ? "لون الواجهة المفضل" : "Accent Color"}
+                      </span>
+                      {companyInfo?.primary_color && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const companyHex = companyInfo.primary_color;
+                            setSelectedThemeColor(companyHex);
+                            applyDynamicThemeColor(companyHex);
+                            if (profile?.id) {
+                              if (typeof window !== "undefined") {
+                                localStorage.removeItem(`yawmi_theme_color_${profile.id}`);
+                              }
+                              await supabase.from("profiles").update({ theme_color: null }).eq("id", profile.id);
+                            }
+                          }}
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          {language === "ar" ? "استعادة لون الشركة" : "Reset to Company"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {THEME_COLOR_PRESETS.map((preset) => (
+                        <button
+                          key={preset.hex}
+                          type="button"
+                          onClick={async () => {
+                            setSelectedThemeColor(preset.hex);
+                            applyDynamicThemeColor(preset.hex);
+                            if (profile?.id) {
+                              if (typeof window !== "undefined") {
+                                localStorage.setItem(`yawmi_theme_color_${profile.id}`, preset.hex);
+                              }
+                              await supabase.from("profiles").update({ theme_color: preset.hex }).eq("id", profile.id);
+                            }
+                          }}
+                          className={`w-7 h-7 rounded-full border-2 transition ${
+                            selectedThemeColor?.toLowerCase() === preset.hex.toLowerCase()
+                              ? "border-slate-900 dark:border-white scale-110 shadow-sm"
+                              : "border-transparent hover:scale-105"
+                          }`}
+                          style={{ backgroundColor: preset.hex }}
+                          title={language === "ar" ? preset.nameAr : preset.nameEn}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -3069,7 +3142,10 @@ export default function EmployeeApp() {
           isOpen={digitalIdOpen}
           onClose={() => setDigitalIdOpen(false)}
           employee={profile}
+          companyName={companyInfo?.name}
+          companyLogoUrl={companyInfo?.logo_url}
           branchName={branch?.name}
+          accentColor={companyInfo?.primary_color || selectedThemeColor}
         />
       )}
     </div>

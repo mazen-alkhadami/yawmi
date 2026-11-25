@@ -7,6 +7,7 @@ import { PublicHeader } from "@/components/public-header";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformContact } from "@/lib/usePlatformContact";
 import {
   QrCode,
   MapPin,
@@ -210,6 +211,7 @@ function YawmiMascot({ lang }: { lang: "ar" | "en" }) {
 
 export default function MarketingLandingPage() {
   const { t, dir, language } = useLanguage();
+  const { whatsappUrl, supportEmail } = usePlatformContact();
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
 
   const ArrowIcon = dir === "rtl" ? ArrowLeft : ArrowRight;
@@ -833,15 +835,26 @@ export default function MarketingLandingPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto shrink-0">
-              <a
-                href="https://wa.me/967779628873"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-[220px] h-12 flex items-center justify-center gap-2.5 rounded-xl font-bold bg-emerald-500 hover:bg-emerald-600 text-white transition text-sm shadow-md"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>{language === "ar" ? "استشارة عبر واتساب" : "Chat on WhatsApp"}</span>
-              </a>
+              {whatsappUrl && (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-[220px] h-12 flex items-center justify-center gap-2.5 rounded-xl font-bold bg-emerald-500 hover:bg-emerald-600 text-white transition text-sm shadow-md"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>{language === "ar" ? "استشارة عبر واتساب" : "Chat on WhatsApp"}</span>
+                </a>
+              )}
+              {supportEmail && (
+                <a
+                  href={`mailto:${supportEmail}`}
+                  className="w-full sm:w-[220px] h-12 flex items-center justify-center gap-2.5 rounded-xl font-bold bg-white/15 hover:bg-white/25 text-white border border-white/25 transition text-sm shadow-md"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>{language === "ar" ? "تواصل عبر البريد" : "Email Support"}</span>
+                </a>
+              )}
               <Link
                 href="/register"
                 className="w-full sm:w-[220px] h-12 flex items-center justify-center gap-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition text-sm border border-indigo-400/40 shadow-md"

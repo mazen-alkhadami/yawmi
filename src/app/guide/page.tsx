@@ -5,6 +5,7 @@ import Link from "next/link";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { PublicHeader } from "@/components/public-header";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformContact } from "@/lib/usePlatformContact";
 import {
   Printer,
   ArrowRight,
@@ -19,10 +20,12 @@ import {
   Clock,
   Download,
   Users,
+  Mail,
 } from "lucide-react";
 
 export default function UserGuidePage() {
   const { t, dir, language } = useLanguage();
+  const { whatsappUrl, supportEmail } = usePlatformContact();
   const ArrowIcon = dir === "rtl" ? ArrowLeft : ArrowRight;
 
   const handlePrint = () => {
@@ -294,14 +297,25 @@ export default function UserGuidePage() {
           </p>
           <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-3">
             <span className="font-mono text-[11px] text-slate-400">https://yawmi.app</span>
-            <a
-              href="https://wa.me/967779628873"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold hover:bg-emerald-100 transition print:hidden"
-            >
-              <span>{language === "ar" ? "تواصل مع الدعم الفني عبر واتساب" : "Support on WhatsApp"}</span>
-            </a>
+            {whatsappUrl && (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold hover:bg-emerald-100 transition print:hidden"
+              >
+                <span>{language === "ar" ? "تواصل مع الدعم الفني عبر واتساب" : "Support on WhatsApp"}</span>
+              </a>
+            )}
+            {supportEmail && (
+              <a
+                href={`mailto:${supportEmail}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold hover:bg-indigo-100 transition print:hidden"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>{language === "ar" ? "الدعم عبر البريد" : "Email Support"}</span>
+              </a>
+            )}
           </div>
         </div>
       </main>

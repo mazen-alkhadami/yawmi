@@ -772,7 +772,9 @@ export default function EmployeeHRPage() {
           onClose={() => setDigitalIdOpen(false)}
           employee={employee}
           companyName={company?.name}
+          companyLogoUrl={company?.logo_url}
           branchName={employee.branch?.name}
+          accentColor={company?.primary_color}
         />
       )}
     </div>
