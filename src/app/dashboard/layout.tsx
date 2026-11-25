@@ -108,7 +108,18 @@ export default function DashboardLayout({
   const [platformSettings, setPlatformSettings] = useState<PlatformContactSettings | null>(null);
   const [adminTourOpen, setAdminTourOpen] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<"pro" | "business">("pro");
+  const [selectedBillingCycle, setSelectedBillingCycle] = useState<"monthly" | "yearly">("yearly");
   const [copiedBankField, setCopiedBankField] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!upgradeModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUpgradeModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [upgradeModalOpen]);
 
   const fetchSessionAndCompany = async () => {
     const cached = getCachedData<{ profile: any; company: any; platformSettings?: PlatformContactSettings | null }>("dashboard_layout");
@@ -302,14 +313,35 @@ export default function DashboardLayout({
     !company?.plan || ["starter", "free", "basic"].includes(company.plan.toLowerCase());
 
   const whatsappClean = platformSettings?.support_whatsapp?.replace(/[^\d]/g, "") || "";
+  const selectedPlanLabelAr = selectedUpgradePlan === "pro" ? "الباقة الاحترافية (Pro)" : "باقة المؤسسات (Enterprise)";
+  const selectedPlanLabelEn = selectedUpgradePlan === "pro" ? "Pro Plan" : "Enterprise Plan";
+  const selectedCycleLabelAr = selectedBillingCycle === "yearly" ? "سنوي" : "شهري";
+  const selectedCycleLabelEn = selectedBillingCycle === "yearly" ? "Annual" : "Monthly";
+  const selectedPriceSar =
+    selectedUpgradePlan === "pro"
+      ? selectedBillingCycle === "yearly"
+        ? "1,990"
+        : "199"
+      : selectedBillingCycle === "yearly"
+      ? "4,990"
+      : "499";
+
+  const upgradeMessageAr = `مرحباً، أرغب في ترقية اشتراك شركة "${company?.name || ""}" (كود: ${company?.invite_code || ""}) إلى ${selectedPlanLabelAr} — الاشتراك: ${selectedCycleLabelAr} (${selectedPriceSar} ريال).`;
+  const upgradeMessageEn = `Hello, I would like to upgrade "${company?.name || ""}" (Code: ${company?.invite_code || ""}) to the ${selectedPlanLabelEn} — ${selectedCycleLabelEn} (${selectedPriceSar} SAR).`;
+
   const whatsappUrl = whatsappClean
     ? `https://wa.me/${whatsappClean}?text=${encodeURIComponent(
-        language === "ar"
-          ? `مرحباً، أرغب في ترقية باقة شركة "${company?.name || ""}" في منصة يومي.`
-          : `Hello, I would like to upgrade the plan for "${company?.name || ""}" on Yawmi.`
+        language === "ar" ? upgradeMessageAr : upgradeMessageEn
       )}`
     : "";
   const supportEmail = platformSettings?.support_email?.trim() || "";
+  const emailOrderUrl = supportEmail
+    ? `mailto:${supportEmail}?subject=${encodeURIComponent(
+        language === "ar"
+          ? `طلب ترقية باقة - ${company?.name || ""}`
+          : `Plan Upgrade Request - ${company?.name || ""}`
+      )}&body=${encodeURIComponent(language === "ar" ? upgradeMessageAr : upgradeMessageEn)}`
+    : "";
   const bankDetails = platformSettings?.bank_transfer_details;
   const hasBankDetails = Boolean(
     bankDetails &&
@@ -548,9 +580,18 @@ export default function DashboardLayout({
 
       {/* Package Upgrade Modal */}
       {upgradeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-6">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20">
+        <div
+          onClick={() => setUpgradeModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+          >
+            {/* Header */}
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
                   <Sparkles className="w-5 h-5" />
@@ -569,43 +610,133 @@ export default function DashboardLayout({
               <button
                 type="button"
                 onClick={() => setUpgradeModalOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white/70 dark:hover:bg-slate-800 transition"
+                aria-label={language === "ar" ? "إغلاق" : "Close"}
+                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-white/80 dark:hover:bg-slate-800 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
-              {/* Plans Overview */}
+            {/* Scrollable Body */}
+            <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
+              {/* Billing Cycle Toggle */}
+              <div className="flex items-center justify-center">
+                <div className="inline-flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingCycle("monthly")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+                      selectedBillingCycle === "monthly"
+                        ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {language === "ar" ? "اشتراك شهري" : "Monthly"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingCycle("yearly")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                      selectedBillingCycle === "yearly"
+                        ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <span>{language === "ar" ? "اشتراك سنوي" : "Annual"}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold">
+                      {language === "ar" ? "وفر شهرين" : "2 Months Free"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Selectable Plans */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div className="p-4 rounded-2xl border-2 border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300">
+                {/* Pro Plan Card */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedUpgradePlan("pro")}
+                  className={`text-start p-4 rounded-2xl border-2 transition relative ${
+                    selectedUpgradePlan === "pro"
+                      ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 shadow-md"
+                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-300">
                       {language === "ar" ? "الباقة الاحترافية (Pro)" : "Pro Plan"}
                     </span>
                     <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
                       {language === "ar" ? "الأكثر طلباً" : "Popular"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {language === "ar"
-                      ? "حتى 10 فروع • 150 موظف • تقارير PDF/Excel متقدمة • تعميمات فورية وسجل إدارة كامل."
-                      : "Up to 10 branches • 150 employees • Full PDF/Excel reports • Announcements & Audit log."}
-                  </p>
-                </div>
+                  <div className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+                    {selectedBillingCycle === "yearly" ? "1,990" : "199"}{" "}
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      {language === "ar"
+                        ? `ريال / ${selectedBillingCycle === "yearly" ? "سنوياً" : "شهرياً"}`
+                        : `SAR / ${selectedBillingCycle === "yearly" ? "yr" : "mo"}`}
+                    </span>
+                  </div>
+                  <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "حتى 5 فروع معتمدة و 50 موظفاً" : "Up to 5 branches & 50 employees"}</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "تقارير PDF و Excel وسجل الإدارة" : "PDF/Excel reports & Audit log"}</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "تعميمات فورية وبوابة المشرف" : "Announcements & Supervisor portal"}</span>
+                    </li>
+                  </ul>
+                </button>
 
-                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
-                  <div className="flex items-center justify-between mb-1.5">
+                {/* Enterprise / Business Plan Card */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedUpgradePlan("business")}
+                  className={`text-start p-4 rounded-2xl border-2 transition relative ${
+                    selectedUpgradePlan === "business"
+                      ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 shadow-md"
+                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-sm font-extrabold text-slate-900 dark:text-white">
                       {language === "ar" ? "باقة المؤسسات (Enterprise)" : "Enterprise Plan"}
                     </span>
+                    {selectedUpgradePlan === "business" && (
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
+                        {language === "ar" ? "محددة" : "Selected"}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {language === "ar"
-                      ? "فروع وموظفون غير محدودين • دعم فني مخصص • تخصيص كامل للهوية والتقارير."
-                      : "Unlimited branches & employees • Dedicated support • Full branding & custom setup."}
-                  </p>
-                </div>
+                  <div className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+                    {selectedBillingCycle === "yearly" ? "4,990" : "499"}{" "}
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      {language === "ar"
+                        ? `ريال / ${selectedBillingCycle === "yearly" ? "سنوياً" : "شهرياً"}`
+                        : `SAR / ${selectedBillingCycle === "yearly" ? "yr" : "mo"}`}
+                    </span>
+                  </div>
+                  <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "فروع وموظفون غير محدودين" : "Unlimited branches & employees"}</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "تخصيص كامل للهوية والشعار" : "Full branding & custom logo"}</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{language === "ar" ? "دعم فني وأولوية قصوى" : "Priority dedicated support"}</span>
+                    </li>
+                  </ul>
+                </button>
               </div>
 
               {/* Conditional Bank Transfer Details (only shown if Super Admin filled them) */}
@@ -637,14 +768,15 @@ export default function DashboardLayout({
                         <button
                           type="button"
                           onClick={() => handleCopyBank("acc", bankDetails.account_number!)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 shrink-0"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold shrink-0 transition"
                         >
                           {copiedBankField === "acc" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedBankField === "acc" ? (language === "ar" ? "تم النسخ" : "Copied") : (language === "ar" ? "نسخ" : "Copy")}</span>
                         </button>
                       </div>
                     )}
                     {bankDetails?.iban?.trim() && (
-                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between gap-2">
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between gap-2 sm:col-span-2">
                         <div className="min-w-0">
                           <span className="block text-[11px] text-slate-400">IBAN</span>
                           <span className="font-mono font-bold text-slate-800 dark:text-slate-100 break-all">{bankDetails.iban}</span>
@@ -652,9 +784,10 @@ export default function DashboardLayout({
                         <button
                           type="button"
                           onClick={() => handleCopyBank("iban", bankDetails.iban!)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 shrink-0"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 transition shadow-sm"
                         >
-                          {copiedBankField === "iban" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          {copiedBankField === "iban" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedBankField === "iban" ? (language === "ar" ? "تم نسخ الآيبان ✓" : "Copied ✓") : (language === "ar" ? "نسخ الآيبان" : "Copy IBAN")}</span>
                         </button>
                       </div>
                     )}
@@ -663,12 +796,12 @@ export default function DashboardLayout({
               )}
 
               {/* Dynamic Contact Actions (WhatsApp / Email) */}
-              {(whatsappUrl || supportEmail) && (
-                <div className="space-y-2">
+              {(whatsappUrl || emailOrderUrl) && (
+                <div className="space-y-2.5">
                   <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {language === "ar"
-                      ? "تواصل معنا لإتمام الترقية وتفعيل الباقة:"
-                      : "Contact us to complete your upgrade and activate your plan:"}
+                      ? `أرسل طلب الترقية (${selectedPlanLabelAr} — ${selectedCycleLabelAr}) مباشرة:`
+                      : `Send your upgrade order (${selectedPlanLabelEn} — ${selectedCycleLabelEn}) directly:`}
                   </p>
                   <div className="flex flex-wrap gap-3">
                     {whatsappUrl && (
@@ -679,42 +812,42 @@ export default function DashboardLayout({
                         className="flex-1 min-w-[180px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition shadow-sm"
                       >
                         <MessageCircle className="w-4 h-4" />
-                        <span>{language === "ar" ? "تواصل عبر واتساب" : "Chat on WhatsApp"}</span>
+                        <span>{language === "ar" ? "طلب الترقية عبر واتساب" : "Order via WhatsApp"}</span>
                       </a>
                     )}
-                    {supportEmail && (
+                    {emailOrderUrl && (
                       <a
-                        href={`mailto:${supportEmail}?subject=${encodeURIComponent(
-                          language === "ar"
-                            ? `طلب ترقية باقة - ${company?.name || ""}`
-                            : `Plan Upgrade Request - ${company?.name || ""}`
-                        )}`}
+                        href={emailOrderUrl}
                         className="flex-1 min-w-[180px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition shadow-sm"
                       >
                         <Mail className="w-4 h-4" />
-                        <span>{language === "ar" ? "تواصل عبر البريد الإلكتروني" : "Contact via Email"}</span>
+                        <span>{language === "ar" ? "طلب الترقية عبر البريد" : "Order via Email"}</span>
                       </a>
                     )}
                   </div>
                 </div>
               )}
+            </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-                <Link
-                  href="/dashboard/settings"
-                  onClick={() => setUpgradeModalOpen(false)}
-                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                >
-                  {language === "ar" ? "أو إرسال طلب الترقية من صفحة الإعدادات ←" : "Or submit upgrade request in Settings →"}
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setUpgradeModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-                >
-                  {language === "ar" ? "إغلاق" : "Close"}
-                </button>
-              </div>
+            {/* Footer */}
+            <div className="px-5 sm:px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/90 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setUpgradeModalOpen(false);
+                  router.push("/dashboard/settings?tab=subscription");
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm"
+              >
+                <span>{language === "ar" ? "الذهاب لإدارة الباقات في الإعدادات" : "Go to Subscription Settings"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpgradeModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+              >
+                {language === "ar" ? "إغلاق" : "Close"}
+              </button>
             </div>
           </div>
         </div>

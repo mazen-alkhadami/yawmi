@@ -151,6 +151,7 @@ export default function EmployeeApp() {
   const [profile, setProfile] = useState<any>(null);
   const [companyInfo, setCompanyInfo] = useState<any>(null);
   const [selectedThemeColor, setSelectedThemeColor] = useState<string>("#4F46E5");
+  const [themeSaveStatus, setThemeSaveStatus] = useState<string | null>(null);
   const [branch, setBranch] = useState<any>(null);
   const [shift, setShift] = useState<any>(null);
   const [availableShifts, setAvailableShifts] = useState<any[]>([]);
@@ -397,6 +398,7 @@ export default function EmployeeApp() {
     if (cached) {
       if (cached.user) setUser(cached.user);
       if (cached.profile) setProfile(cached.profile);
+      if (cached.companyInfo) setCompanyInfo(cached.companyInfo);
       if (cached.branch !== undefined) setBranch(cached.branch);
       if (cached.shift !== undefined) setShift(cached.shift);
       if (cached.availableShifts) setAvailableShifts(cached.availableShifts);
@@ -409,6 +411,16 @@ export default function EmployeeApp() {
 
     let lockUserId: string | null =
       cached?.user?.id || localStorage.getItem("yawmi_last_user_id");
+
+    const cachedThemeColor =
+      cached?.profile?.theme_color ||
+      (lockUserId ? localStorage.getItem(`yawmi_theme_color_${lockUserId}`) : null) ||
+      cached?.companyInfo?.primary_color ||
+      null;
+    if (cachedThemeColor) {
+      setSelectedThemeColor(cachedThemeColor);
+      applyDynamicThemeColor(cachedThemeColor);
+    }
 
     if (!lockUserId) {
       for (let i = 0; i < localStorage.length; i++) {
@@ -558,6 +570,9 @@ export default function EmployeeApp() {
         (typeof window !== "undefined" ? localStorage.getItem(`yawmi_theme_color_${authUser.id}`) : null) ||
         compData?.primary_color ||
         "#4F46E5";
+      if (prof.theme_color && typeof window !== "undefined") {
+        localStorage.setItem(`yawmi_theme_color_${authUser.id}`, prof.theme_color);
+      }
       setCompanyInfo(compData);
       setSelectedThemeColor(activeColor);
       applyDynamicThemeColor(activeColor);
@@ -2394,30 +2409,55 @@ export default function EmployeeApp() {
                   </div>
 
                   {/* Personal Accent Theme Color */}
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-bold text-slate-700 dark:text-slate-300">
                         {language === "ar" ? "لون الواجهة المفضل" : "Accent Color"}
                       </span>
-                      {companyInfo?.primary_color && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const companyHex = companyInfo.primary_color;
-                            setSelectedThemeColor(companyHex);
-                            applyDynamicThemeColor(companyHex);
-                            if (profile?.id) {
-                              if (typeof window !== "undefined") {
-                                localStorage.removeItem(`yawmi_theme_color_${profile.id}`);
+                      <div className="flex items-center gap-2">
+                        {themeSaveStatus && (
+                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                            {themeSaveStatus}
+                          </span>
+                        )}
+                        {companyInfo?.primary_color && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const companyHex = companyInfo.primary_color;
+                              setSelectedThemeColor(companyHex);
+                              applyDynamicThemeColor(companyHex);
+                              const uid = profile?.id || user?.id;
+                              if (uid) {
+                                if (typeof window !== "undefined") {
+                                  localStorage.removeItem(`yawmi_theme_color_${uid}`);
+                                }
+                                setProfile((prev: any) => (prev ? { ...prev, theme_color: null } : prev));
+                                const prevCache = getCachedData<any>("employee_app");
+                                if (prevCache?.profile) {
+                                  setCachedData("employee_app", {
+                                    ...prevCache,
+                                    profile: { ...prevCache.profile, theme_color: null },
+                                  });
+                                }
+                                const { error } = await supabase
+                                  .from("profiles")
+                                  .update({ theme_color: null })
+                                  .eq("id", uid);
+                                setThemeSaveStatus(
+                                  error
+                                    ? (language === "ar" ? "تمت الاستعادة محلياً" : "Reset locally")
+                                    : (language === "ar" ? "تمت الاستعادة ✓" : "Reset ✓")
+                                );
+                                setTimeout(() => setThemeSaveStatus(null), 2500);
                               }
-                              await supabase.from("profiles").update({ theme_color: null }).eq("id", profile.id);
-                            }
-                          }}
-                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                        >
-                          {language === "ar" ? "استعادة لون الشركة" : "Reset to Company"}
-                        </button>
-                      )}
+                            }}
+                            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                          >
+                            {language === "ar" ? "استعادة لون الشركة" : "Reset to Company"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {THEME_COLOR_PRESETS.map((preset) => (
@@ -2425,13 +2465,32 @@ export default function EmployeeApp() {
                           key={preset.hex}
                           type="button"
                           onClick={async () => {
-                            setSelectedThemeColor(preset.hex);
-                            applyDynamicThemeColor(preset.hex);
-                            if (profile?.id) {
+                            const hex = preset.hex;
+                            setSelectedThemeColor(hex);
+                            applyDynamicThemeColor(hex);
+                            const uid = profile?.id || user?.id;
+                            if (uid) {
                               if (typeof window !== "undefined") {
-                                localStorage.setItem(`yawmi_theme_color_${profile.id}`, preset.hex);
+                                localStorage.setItem(`yawmi_theme_color_${uid}`, hex);
                               }
-                              await supabase.from("profiles").update({ theme_color: preset.hex }).eq("id", profile.id);
+                              setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                              const prevCache = getCachedData<any>("employee_app");
+                              if (prevCache?.profile) {
+                                setCachedData("employee_app", {
+                                  ...prevCache,
+                                  profile: { ...prevCache.profile, theme_color: hex },
+                                });
+                              }
+                              const { error } = await supabase
+                                .from("profiles")
+                                .update({ theme_color: hex })
+                                .eq("id", uid);
+                              setThemeSaveStatus(
+                                error
+                                  ? (language === "ar" ? "تم التطبيق محلياً" : "Applied locally")
+                                  : (language === "ar" ? "تم الحفظ ✓" : "Saved ✓")
+                              );
+                              setTimeout(() => setThemeSaveStatus(null), 2500);
                             }
                           }}
                           className={`w-7 h-7 rounded-full border-2 transition ${
@@ -2443,6 +2502,46 @@ export default function EmployeeApp() {
                           title={language === "ar" ? preset.nameAr : preset.nameEn}
                         />
                       ))}
+                      {/* Custom Color Picker */}
+                      <label
+                        className="w-7 h-7 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center cursor-pointer overflow-hidden hover:scale-105 transition"
+                        title={language === "ar" ? "لون مخصص" : "Custom Color"}
+                      >
+                        <input
+                          type="color"
+                          value={/^#[0-9a-fA-F]{6}$/.test(selectedThemeColor) ? selectedThemeColor : "#4F46E5"}
+                          onChange={async (e) => {
+                            const hex = e.target.value;
+                            setSelectedThemeColor(hex);
+                            applyDynamicThemeColor(hex);
+                            const uid = profile?.id || user?.id;
+                            if (uid) {
+                              if (typeof window !== "undefined") {
+                                localStorage.setItem(`yawmi_theme_color_${uid}`, hex);
+                              }
+                              setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                              const prevCache = getCachedData<any>("employee_app");
+                              if (prevCache?.profile) {
+                                setCachedData("employee_app", {
+                                  ...prevCache,
+                                  profile: { ...prevCache.profile, theme_color: hex },
+                                });
+                              }
+                              const { error } = await supabase
+                                .from("profiles")
+                                .update({ theme_color: hex })
+                                .eq("id", uid);
+                              setThemeSaveStatus(
+                                error
+                                  ? (language === "ar" ? "تم التطبيق محلياً" : "Applied locally")
+                                  : (language === "ar" ? "تم الحفظ ✓" : "Saved ✓")
+                              );
+                              setTimeout(() => setThemeSaveStatus(null), 2500);
+                            }
+                          }}
+                          className="w-9 h-9 -m-1 cursor-pointer border-0 bg-transparent"
+                        />
+                      </label>
                     </div>
                   </div>
                 </div>

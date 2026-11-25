@@ -5,7 +5,7 @@ import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
-import { applyDynamicThemeColor } from "@/lib/themeColor";
+import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
 import {
   Settings,
   Building2,
@@ -98,6 +98,15 @@ export default function CompanySettingsPage() {
   const [receiptUrl, setReceiptUrl] = useState("");
   const [submittingUpgrade, setSubmittingUpgrade] = useState(false);
   const [upgradeAlert, setUpgradeAlert] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") === "subscription") {
+        setActiveTab("subscription");
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (company?.id) {
@@ -487,32 +496,46 @@ export default function CompanySettingsPage() {
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   {t("company_primary_color")}
                 </label>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl border border-slate-300 dark:border-slate-600 shadow-sm shrink-0"
-                    style={{ backgroundColor: primaryColor }}
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(primaryColor) ? primaryColor : "#4F46E5"}
+                    onChange={(e) => {
+                      setPrimaryColor(e.target.value);
+                      applyDynamicThemeColor(e.target.value);
+                    }}
+                    className="w-10 h-10 rounded-xl border border-slate-300 dark:border-slate-600 shadow-sm shrink-0 cursor-pointer bg-transparent p-0.5"
+                    title={dir === "rtl" ? "اختر لوناً مخصصاً" : "Pick custom color"}
                   />
                   <input
                     type="text"
                     value={primaryColor}
-                    onChange={(e) => setPrimaryColor(e.target.value)}
+                    onChange={(e) => {
+                      setPrimaryColor(e.target.value);
+                      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                        applyDynamicThemeColor(e.target.value);
+                      }
+                    }}
                     placeholder="#4F46E5"
-                    className="w-36 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold"
+                    className="w-28 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold"
                   />
-                  {/* Presets */}
+                  {/* 12 Distinct Color Presets */}
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {colorPresets.map((preset) => (
+                    {THEME_COLOR_PRESETS.map((preset) => (
                       <button
                         key={preset.hex}
                         type="button"
-                        onClick={() => setPrimaryColor(preset.hex)}
-                        className={`w-6 h-6 rounded-full border-2 transition ${
-                          primaryColor === preset.hex
-                            ? "border-slate-900 dark:border-white scale-110"
-                            : "border-transparent"
+                        onClick={() => {
+                          setPrimaryColor(preset.hex);
+                          applyDynamicThemeColor(preset.hex);
+                        }}
+                        className={`w-7 h-7 rounded-full border-2 transition ${
+                          primaryColor.toLowerCase() === preset.hex.toLowerCase()
+                            ? "border-slate-900 dark:border-white scale-110 shadow-sm"
+                            : "border-transparent hover:scale-105"
                         }`}
                         style={{ backgroundColor: preset.hex }}
-                        title={preset.name}
+                        title={dir === "rtl" ? preset.nameAr : preset.nameEn}
                       />
                     ))}
                   </div>

@@ -5,13 +5,18 @@ export interface ThemeColorPreset {
 }
 
 export const THEME_COLOR_PRESETS: ThemeColorPreset[] = [
-  { nameAr: "نيلي عميق", nameEn: "Deep Indigo", hex: "#4F46E5" },
+  { nameAr: "أخضر زمردي", nameEn: "Emerald Green", hex: "#059669" },
   { nameAr: "أزرق ملكي", nameEn: "Royal Blue", hex: "#2563EB" },
-  { nameAr: "زمردي فيروزي", nameEn: "Teal Emerald", hex: "#0D9488" },
-  { nameAr: "أخضر غابات", nameEn: "Forest Green", hex: "#16A34A" },
-  { nameAr: "بنفسجي", nameEn: "Purple", hex: "#9333EA" },
-  { nameAr: "عنابي فاخر", nameEn: "Crimson", hex: "#E11D48" },
-  { nameAr: "كحلي ليلي", nameEn: "Midnight Navy", hex: "#1E293B" },
+  { nameAr: "نيلي بنفسجي", nameEn: "Indigo Violet", hex: "#4F46E5" },
+  { nameAr: "أحمر قرمزي", nameEn: "Crimson Red", hex: "#DC2626" },
+  { nameAr: "برتقالي كهرماني", nameEn: "Amber Orange", hex: "#D97706" },
+  { nameAr: "فيروزي سماوي", nameEn: "Teal Cyan", hex: "#0D9488" },
+  { nameAr: "وردي ياقوتي", nameEn: "Rose Pink", hex: "#E11D48" },
+  { nameAr: "رمادي فحمي", nameEn: "Slate Charcoal", hex: "#334155" },
+  { nameAr: "بنفسجي عميق", nameEn: "Deep Purple", hex: "#7C3AED" },
+  { nameAr: "نحاسي محروق", nameEn: "Burnt Copper", hex: "#C2410C" },
+  { nameAr: "أزرق محيطي", nameEn: "Ocean Navy", hex: "#1D4ED8" },
+  { nameAr: "زيتوني غابات", nameEn: "Forest Olive", hex: "#4D7C0F" },
 ];
 
 export function hexToHslComponents(hex: string): string {

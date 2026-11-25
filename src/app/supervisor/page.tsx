@@ -694,6 +694,7 @@ export default function BranchSupervisorPage() {
                             if (typeof window !== "undefined") {
                               localStorage.setItem(`yawmi_theme_color_${profile.id}`, preset.hex);
                             }
+                            setProfile((prev: any) => (prev ? { ...prev, theme_color: preset.hex } : prev));
                             await supabase.from("profiles").update({ theme_color: preset.hex }).eq("id", profile.id);
                           }
                         }}
@@ -706,6 +707,28 @@ export default function BranchSupervisorPage() {
                         title={language === "ar" ? preset.nameAr : preset.nameEn}
                       />
                     ))}
+                    <label
+                      className="w-6 h-6 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center cursor-pointer overflow-hidden hover:scale-105 transition"
+                      title={language === "ar" ? "لون مخصص" : "Custom Color"}
+                    >
+                      <input
+                        type="color"
+                        value={/^#[0-9a-fA-F]{6}$/.test(selectedThemeColor) ? selectedThemeColor : "#4F46E5"}
+                        onChange={async (e) => {
+                          const hex = e.target.value;
+                          setSelectedThemeColor(hex);
+                          applyDynamicThemeColor(hex);
+                          if (profile?.id) {
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem(`yawmi_theme_color_${profile.id}`, hex);
+                            }
+                            setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                            await supabase.from("profiles").update({ theme_color: hex }).eq("id", profile.id);
+                          }
+                        }}
+                        className="w-8 h-8 -m-1 cursor-pointer border-0 bg-transparent"
+                      />
+                    </label>
                   </div>
                 </div>
               )}
