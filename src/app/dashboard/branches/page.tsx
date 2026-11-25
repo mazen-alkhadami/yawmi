@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import { QRCodeSVG } from "qrcode.react";
 import {
   MapPin,
@@ -74,8 +75,16 @@ export default function BranchesPage() {
 
   const fetchBranches = async () => {
     if (!company?.id) return;
-    try {
+    const cacheKey = `branches_${company.id}`;
+    const cached = getCachedData<Branch[]>(cacheKey);
+    if (cached) {
+      setBranches(cached);
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
+
+    try {
       const { data, error } = await supabase
         .from("branches")
         .select("*")
@@ -83,7 +92,9 @@ export default function BranchesPage() {
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setBranches(data || []);
+      const list = data || [];
+      setBranches(list);
+      setCachedData(cacheKey, list);
     } catch (err: any) {
       console.error("Error fetching branches:", err);
     } finally {

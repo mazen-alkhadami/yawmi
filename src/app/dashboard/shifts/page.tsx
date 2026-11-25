@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   CalendarClock,
   Plus,
@@ -56,8 +57,16 @@ export default function ShiftTemplatesPage() {
 
   const fetchShifts = async () => {
     if (!company?.id) return;
-    try {
+    const cacheKey = `shifts_${company.id}`;
+    const cached = getCachedData<ShiftTemplate[]>(cacheKey);
+    if (cached) {
+      setShifts(cached);
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
+
+    try {
       const { data, error } = await supabase
         .from("shift_templates")
         .select("*")
@@ -65,7 +74,9 @@ export default function ShiftTemplatesPage() {
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setShifts(data || []);
+      const list = data || [];
+      setShifts(list);
+      setCachedData(cacheKey, list);
     } catch (err: any) {
       console.error("Error fetching shifts:", err);
     } finally {

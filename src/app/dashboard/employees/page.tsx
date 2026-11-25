@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   Users,
   Search,
@@ -97,33 +98,49 @@ export default function EmployeesManagementPage() {
 
   const fetchData = async () => {
     if (!company?.id) return;
-    try {
+    const cacheKey = `employees_list_${company.id}`;
+    const cached = getCachedData<{ employees: EmployeeProfile[]; branches: Branch[]; shifts: ShiftTemplate[] }>(cacheKey);
+    if (cached) {
+      setEmployees(cached.employees || []);
+      setBranches(cached.branches || []);
+      setShifts(cached.shifts || []);
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
 
-      // 1. Fetch employees
-      const { data: empData, error: empErr } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("company_id", company.id)
-        .in("role", ["employee", "branch_supervisor"])
-        .order("created_at", { ascending: false });
+    try {
+      // Run all 3 queries in parallel
+      const [empRes, branchRes, shiftRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("company_id", company.id)
+          .in("role", ["employee", "branch_supervisor"])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("branches")
+          .select("id, name")
+          .eq("company_id", company.id),
+        supabase
+          .from("shift_templates")
+          .select("id, name")
+          .eq("company_id", company.id),
+      ]);
 
-      if (empErr) throw empErr;
-      setEmployees((empData as any) || []);
+      if (empRes.error) throw empRes.error;
+      const empList = (empRes.data as any) || [];
+      const branchList = branchRes.data || [];
+      const shiftList = shiftRes.data || [];
 
-      // 2. Fetch branches
-      const { data: branchData } = await supabase
-        .from("branches")
-        .select("id, name")
-        .eq("company_id", company.id);
-      setBranches(branchData || []);
-
-      // 3. Fetch shifts
-      const { data: shiftData } = await supabase
-        .from("shift_templates")
-        .select("id, name")
-        .eq("company_id", company.id);
-      setShifts(shiftData || []);
+      setEmployees(empList);
+      setBranches(branchList);
+      setShifts(shiftList);
+      setCachedData(cacheKey, {
+        employees: empList,
+        branches: branchList,
+        shifts: shiftList,
+      });
     } catch (err: any) {
       console.error("Error loading employees:", err);
     } finally {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { CompanyDashboardContext } from "../../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   User,
   ArrowRight,
@@ -117,25 +118,77 @@ export default function EmployeeHRPage() {
   }, [employeeId]);
 
   const loadEmployeeHRData = async () => {
-    setLoading(true);
-    try {
-      // 1. Fetch Employee Profile
-      const { data: empData, error: empErr } = await supabase
-        .from("profiles")
-        .select("*, branch:branch_id(id, name), shift_template:shift_template_id(id, name)")
-        .eq("id", employeeId)
-        .maybeSingle();
+    const cacheKey = `employee_hr_${employeeId}`;
+    const cached = getCachedData<{
+      employee: EmployeeProfile;
+      branches: any[];
+      summary: AttendanceSummary;
+      historyItems: CareerHistoryItem[];
+    }>(cacheKey);
 
-      if (empErr || !empData) {
-        console.error("Employee not found:", empErr);
+    if (cached?.employee) {
+      setEmployee(cached.employee);
+      setNewJobTitle(cached.employee.job_title || "");
+      setBranches(cached.branches || []);
+      setSummary(cached.summary);
+      setHistoryItems(cached.historyItems || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      // Run employee profile, attendance stats, and career history in parallel
+      const [empRes, attRes, historyRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*, branch:branch_id(id, name), shift_template:shift_template_id(id, name)")
+          .eq("id", employeeId)
+          .maybeSingle(),
+        supabase
+          .from("attendance_logs")
+          .select("id, late_minutes, overtime_minutes, grace_period_applied")
+          .eq("employee_id", employeeId),
+        supabase
+          .from("employee_history")
+          .select("*, changer:changed_by(id, full_name)")
+          .eq("employee_id", employeeId)
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (empRes.error || !empRes.data) {
+        console.error("Employee not found:", empRes.error);
         setEmployee(null);
         return;
       }
 
-      setEmployee(empData as any);
+      const empData = empRes.data as any;
+      setEmployee(empData);
       setNewJobTitle(empData.job_title || "");
 
-      // 2. Fetch Branches for transfer dropdown
+      let nextSummary: AttendanceSummary = {
+        totalPresent: 0,
+        totalLateMinutes: 0,
+        totalOvertimeMinutes: 0,
+        gracePeriodsUsed: 0,
+      };
+      if (attRes.data) {
+        const totalLate = attRes.data.reduce((acc, log) => acc + (log.late_minutes || 0), 0);
+        const totalOvertime = attRes.data.reduce((acc, log) => acc + (log.overtime_minutes || 0), 0);
+        const totalGrace = attRes.data.filter((log) => log.grace_period_applied).length;
+        nextSummary = {
+          totalPresent: attRes.data.length,
+          totalLateMinutes: totalLate,
+          totalOvertimeMinutes: totalOvertime,
+          gracePeriodsUsed: totalGrace,
+        };
+        setSummary(nextSummary);
+      }
+
+      const nextHistory = (historyRes.data as any) || [];
+      setHistoryItems(nextHistory);
+
+      let nextBranches: any[] = [];
       if (empData.company_id) {
         const { data: branchesData } = await supabase
           .from("branches")
@@ -143,39 +196,20 @@ export default function EmployeeHRPage() {
           .eq("company_id", empData.company_id)
           .eq("is_active", true)
           .order("name", { ascending: true });
-        setBranches(branchesData || []);
-        if (branchesData && branchesData.length > 0) {
-          const otherBranch = branchesData.find((b) => b.id !== empData.branch_id);
-          setTargetBranchId(otherBranch ? otherBranch.id : branchesData[0].id);
+        nextBranches = branchesData || [];
+        setBranches(nextBranches);
+        if (nextBranches.length > 0) {
+          const otherBranch = nextBranches.find((b) => b.id !== empData.branch_id);
+          setTargetBranchId(otherBranch ? otherBranch.id : nextBranches[0].id);
         }
       }
 
-      // 3. Fetch Attendance Stats
-      const { data: attData } = await supabase
-        .from("attendance_logs")
-        .select("id, late_minutes, overtime_minutes, grace_period_applied")
-        .eq("employee_id", employeeId);
-
-      if (attData) {
-        const totalLate = attData.reduce((acc, log) => acc + (log.late_minutes || 0), 0);
-        const totalOvertime = attData.reduce((acc, log) => acc + (log.overtime_minutes || 0), 0);
-        const totalGrace = attData.filter((log) => log.grace_period_applied).length;
-        setSummary({
-          totalPresent: attData.length,
-          totalLateMinutes: totalLate,
-          totalOvertimeMinutes: totalOvertime,
-          gracePeriodsUsed: totalGrace,
-        });
-      }
-
-      // 4. Fetch Career History
-      const { data: historyData } = await supabase
-        .from("employee_history")
-        .select("*, changer:changed_by(id, full_name)")
-        .eq("employee_id", employeeId)
-        .order("created_at", { ascending: false });
-
-      setHistoryItems((historyData as any) || []);
+      setCachedData(cacheKey, {
+        employee: empData,
+        branches: nextBranches,
+        summary: nextSummary,
+        historyItems: nextHistory,
+      });
     } catch (err) {
       console.error("Error loading employee HR file:", err);
     } finally {

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -161,10 +162,39 @@ export default function BranchSupervisorPage() {
   }, []);
 
   const loadSupervisorData = async () => {
-    setLoading(true);
+    const cacheKey = "supervisor_portal";
+    const cached = getCachedData<{
+      profile: any;
+      permissions: SupervisorPermissions;
+      assignedBranches: Branch[];
+      attendanceLogs: AttendanceRecord[];
+      requests: RequestRecord[];
+      pendingEmployees: PendingEmployee[];
+      shiftTemplates: Array<{ id: string; name: string }>;
+    }>(cacheKey);
+
+    if (cached?.profile) {
+      setProfile(cached.profile);
+      setPermissions(cached.permissions);
+      setAssignedBranches(cached.assignedBranches || []);
+      setAttendanceLogs(cached.attendanceLogs || []);
+      setRequests(cached.requests || []);
+      setPendingEmployees(cached.pendingEmployees || []);
+      setShiftTemplates(cached.shiftTemplates || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: sessionData } = await supabase.auth.getSession();
+      let user = sessionData?.session?.user || null;
       if (!user) {
+        const { data: userData } = await supabase.auth.getUser();
+        user = userData?.user || null;
+      }
+      if (!user) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -177,6 +207,7 @@ export default function BranchSupervisorPage() {
         .maybeSingle();
 
       if (profileErr || !profileData) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -200,7 +231,6 @@ export default function BranchSupervisorPage() {
       // Fetch assigned branches
       let branchList: Branch[] = [];
       if (profileData.role === "company_manager" || profileData.role === "super_admin") {
-        // Manager can view all company branches
         const { data: allBranches } = await supabase
           .from("branches")
           .select("*")
@@ -223,54 +253,70 @@ export default function BranchSupervisorPage() {
 
       setAssignedBranches(branchList);
 
+      let nextAtt: AttendanceRecord[] = [];
+      let nextReqs: RequestRecord[] = [];
+      let nextPending: PendingEmployee[] = [];
+      let nextShifts: Array<{ id: string; name: string }> = [];
+
       if (branchList.length > 0) {
         const branchIds = branchList.map((b) => b.id);
         const todayStr = new Date().toISOString().split("T")[0];
+        const canApprove = parsedPermissions.can_approve_employees || profileData.role === "company_manager";
 
-        // 1. Fetch Today's Attendance Logs for assigned branches
-        const { data: attData } = await supabase
-          .from("attendance_logs")
-          .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
-          .eq("company_id", profileData.company_id)
-          .in("branch_id", branchIds)
-          .eq("shift_date", todayStr)
-          .order("check_in_at", { ascending: false });
-
-        setAttendanceLogs((attData as any) || []);
-
-        // 2. Fetch Pending Requests for assigned branches
-        const { data: reqData } = await supabase
-          .from("requests")
-          .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
-          .eq("company_id", profileData.company_id)
-          .eq("direction", "outgoing")
-          .eq("status", "pending")
-          .in("branch_id", branchIds)
-          .order("created_at", { ascending: false });
-
-        setRequests((reqData as any) || []);
-
-        // 3. If supervisor has employee approval permission, fetch pending staff and shift templates
-        if (parsedPermissions.can_approve_employees || profileData.role === "company_manager") {
-          const { data: pendingData } = await supabase
-            .from("profiles")
-            .select("*, branch:branch_id(id, name), shift_template:shift_template_id(id, name)")
+        const [attRes, reqRes, pendingRes, shiftsRes] = await Promise.all([
+          supabase
+            .from("attendance_logs")
+            .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
             .eq("company_id", profileData.company_id)
+            .in("branch_id", branchIds)
+            .eq("shift_date", todayStr)
+            .order("check_in_at", { ascending: false }),
+          supabase
+            .from("requests")
+            .select("*, employee:employee_id(id, full_name, job_title, phone), branch:branch_id(id, name)")
+            .eq("company_id", profileData.company_id)
+            .eq("direction", "outgoing")
             .eq("status", "pending")
             .in("branch_id", branchIds)
-            .order("created_at", { ascending: false });
+            .order("created_at", { ascending: false }),
+          canApprove
+            ? supabase
+                .from("profiles")
+                .select("*, branch:branch_id(id, name), shift_template:shift_template_id(id, name)")
+                .eq("company_id", profileData.company_id)
+                .eq("status", "pending")
+                .in("branch_id", branchIds)
+                .order("created_at", { ascending: false })
+            : Promise.resolve({ data: [] }),
+          canApprove
+            ? supabase
+                .from("shift_templates")
+                .select("id, name")
+                .eq("company_id", profileData.company_id)
+                .order("name", { ascending: true })
+            : Promise.resolve({ data: [] }),
+        ]);
 
-          setPendingEmployees((pendingData as any) || []);
+        nextAtt = (attRes.data as any) || [];
+        nextReqs = (reqRes.data as any) || [];
+        nextPending = (pendingRes.data as any) || [];
+        nextShifts = (shiftsRes.data as any) || [];
 
-          const { data: shiftsData } = await supabase
-            .from("shift_templates")
-            .select("id, name")
-            .eq("company_id", profileData.company_id)
-            .order("name", { ascending: true });
-
-          setShiftTemplates(shiftsData || []);
-        }
+        setAttendanceLogs(nextAtt);
+        setRequests(nextReqs);
+        setPendingEmployees(nextPending);
+        setShiftTemplates(nextShifts);
       }
+
+      setCachedData(cacheKey, {
+        profile: profileData,
+        permissions: parsedPermissions,
+        assignedBranches: branchList,
+        attendanceLogs: nextAtt,
+        requests: nextReqs,
+        pendingEmployees: nextPending,
+        shiftTemplates: nextShifts,
+      });
     } catch (err) {
       console.error("Error loading supervisor portal:", err);
     } finally {
@@ -279,6 +325,7 @@ export default function BranchSupervisorPage() {
   };
 
   const handleLogout = async () => {
+    clearUserCache();
     await supabase.auth.signOut();
     router.push("/login");
   };
@@ -509,9 +556,14 @@ export default function BranchSupervisorPage() {
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
-            <p className="text-sm">{t("loading")}</p>
+          <div className="space-y-4 animate-pulse py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+              <div className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+              <div className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+            </div>
+            <div className="h-14 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+            <div className="h-48 rounded-2xl bg-slate-200 dark:bg-slate-800" />
           </div>
         ) : assignedBranches.length === 0 ? (
           <div className="p-8 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-center max-w-lg mx-auto my-12 shadow-sm">

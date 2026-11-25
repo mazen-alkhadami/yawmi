@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CompanyDashboardContext } from "./layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   MapPin,
   Users,
@@ -35,6 +36,15 @@ export default function DashboardOverviewPage() {
   useEffect(() => {
     async function loadStats() {
       if (!company?.id) return;
+      const cacheKey = `dashboard_overview_${company.id}`;
+      const cached = getCachedData<{ branchesCount: number; employeesCount: number; shiftsCount: number }>(cacheKey);
+      if (cached) {
+        setBranchesCount(cached.branchesCount);
+        setEmployeesCount(cached.employeesCount);
+        setShiftsCount(cached.shiftsCount);
+        setStatsLoading(false);
+      }
+
       try {
         // Run count queries in parallel for instant load
         const [bRes, eRes, sRes] = await Promise.all([
@@ -52,9 +62,18 @@ export default function DashboardOverviewPage() {
             .eq("company_id", company.id),
         ]);
 
-        setBranchesCount(bRes.count || 0);
-        setEmployeesCount(Math.max(0, (eRes.count || 1) - 1));
-        setShiftsCount(sRes.count || 0);
+        const nextBranches = bRes.count || 0;
+        const nextEmployees = Math.max(0, (eRes.count || 1) - 1);
+        const nextShifts = sRes.count || 0;
+
+        setBranchesCount(nextBranches);
+        setEmployeesCount(nextEmployees);
+        setShiftsCount(nextShifts);
+        setCachedData(cacheKey, {
+          branchesCount: nextBranches,
+          employeesCount: nextEmployees,
+          shiftsCount: nextShifts,
+        });
       } catch (err) {
         console.error("Error loading dashboard stats:", err);
       } finally {

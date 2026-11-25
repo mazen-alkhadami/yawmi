@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   Settings,
   Building2,
@@ -82,52 +83,67 @@ export default function CompanySettingsPage() {
   const [upgradeAlert, setUpgradeAlert] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    if (company) {
+    if (company?.id) {
       setCompanyName(company.name || "");
       if (company.primary_color) {
         setPrimaryColor(company.primary_color);
       }
-      fetchCompanyUsage();
-      fetchPlatformSettings();
-      fetchUpgradeHistory();
+      loadSettingsData();
     }
   }, [company?.id, company?.name, company?.primary_color]);
 
-  const fetchCompanyUsage = async () => {
+  const loadSettingsData = async () => {
     if (!company?.id) return;
-    try {
-      const { count: bCount } = await supabase
-        .from("branches")
-        .select("id", { count: "exact", head: true })
-        .eq("company_id", company.id)
-        .eq("is_active", true);
-
-      const { count: eCount } = await supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("company_id", company.id)
-        .neq("status", "suspended");
-
-      setBranchesCount(bCount || 0);
-      setEmployeesCount(eCount || 0);
-    } catch (err) {
-      console.error("Error fetching usage stats:", err);
+    const cacheKey = `settings_${company.id}`;
+    const cached = getCachedData<{
+      branchesCount: number;
+      employeesCount: number;
+      platformSettings: any;
+      upgradeHistory: any[];
+    }>(cacheKey);
+    if (cached) {
+      setBranchesCount(cached.branchesCount);
+      setEmployeesCount(cached.employeesCount);
+      if (cached.platformSettings) setPlatformSettings(cached.platformSettings);
+      setUpgradeHistory(cached.upgradeHistory || []);
     }
-  };
 
-  const fetchPlatformSettings = async () => {
     try {
-      const { data } = await supabase
-        .from("platform_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      const [bRes, eRes, platRes, upgRes] = await Promise.all([
+        supabase
+          .from("branches")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", company.id)
+          .eq("is_active", true),
+        supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", company.id)
+          .neq("status", "suspended"),
+        supabase.from("platform_settings").select("*").limit(1).maybeSingle(),
+        supabase
+          .from("upgrade_requests")
+          .select("*")
+          .eq("company_id", company.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
-      if (data) {
-        setPlatformSettings(data);
-      }
+      const bCount = bRes.count || 0;
+      const eCount = eRes.count || 0;
+      setBranchesCount(bCount);
+      setEmployeesCount(eCount);
+      if (platRes.data) setPlatformSettings(platRes.data);
+      const upgList = upgRes.data || [];
+      setUpgradeHistory(upgList);
+
+      setCachedData(cacheKey, {
+        branchesCount: bCount,
+        employeesCount: eCount,
+        platformSettings: platRes.data || null,
+        upgradeHistory: upgList,
+      });
     } catch (err) {
-      console.error("Error fetching platform settings:", err);
+      console.error("Error fetching settings data:", err);
     }
   };
 

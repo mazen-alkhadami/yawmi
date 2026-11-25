@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   FileCheck2,
   Clock,
@@ -103,72 +104,90 @@ export default function RequestsCenterPage() {
 
   const fetchAllData = async () => {
     if (!company?.id) return;
-    try {
+    const cacheKey = `requests_center_${company.id}`;
+    const cached = getCachedData<{
+      requests: RequestRecord[];
+      overtimeLogs: OvertimeLog[];
+      salaryRequests: RequestRecord[];
+      employeesList: any[];
+    }>(cacheKey);
+
+    if (cached) {
+      setRequests(cached.requests || []);
+      setOvertimeLogs(cached.overtimeLogs || []);
+      setSalaryRequests(cached.salaryRequests || []);
+      setEmployeesList(cached.employeesList || []);
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
 
-      // 1. Fetch outgoing employee requests
-      const { data: reqData, error: reqErr } = await supabase
-        .from("requests")
-        .select("*")
-        .eq("company_id", company.id)
-        .eq("direction", "outgoing")
-        .order("created_at", { ascending: false });
+    try {
+      // Run all 5 independent queries in parallel
+      const [reqRes, otRes, salRes, empsRes, brsRes] = await Promise.all([
+        supabase
+          .from("requests")
+          .select("*")
+          .eq("company_id", company.id)
+          .eq("direction", "outgoing")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("attendance_logs")
+          .select("*")
+          .eq("company_id", company.id)
+          .gt("overtime_minutes", 0)
+          .eq("overtime_approved", false)
+          .order("shift_date", { ascending: false }),
+        supabase
+          .from("requests")
+          .select("*")
+          .eq("company_id", company.id)
+          .eq("type", "salary_confirmation")
+          .eq("direction", "incoming")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("profiles")
+          .select("id, full_name, job_title, phone")
+          .eq("company_id", company.id),
+        supabase
+          .from("branches")
+          .select("id, name")
+          .eq("company_id", company.id),
+      ]);
 
-      if (reqErr) throw reqErr;
+      if (reqRes.error) throw reqRes.error;
 
-      // 2. Fetch overtime logs
-      const { data: otData } = await supabase
-        .from("attendance_logs")
-        .select("*")
-        .eq("company_id", company.id)
-        .gt("overtime_minutes", 0)
-        .eq("overtime_approved", false)
-        .order("shift_date", { ascending: false });
+      const emps = empsRes.data || [];
+      const empMap = new Map(emps.map((e) => [e.id, e]));
+      setEmployeesList(emps);
 
-      // 3. Fetch salary confirmation incoming requests
-      const { data: salData } = await supabase
-        .from("requests")
-        .select("*")
-        .eq("company_id", company.id)
-        .eq("type", "salary_confirmation")
-        .eq("direction", "incoming")
-        .order("created_at", { ascending: false });
+      const brMap = new Map((brsRes.data || []).map((b) => [b.id, b]));
 
-      // 4. Fetch company employees for mapping
-      const { data: emps } = await supabase
-        .from("profiles")
-        .select("id, full_name, job_title, phone")
-        .eq("company_id", company.id);
-
-      const empMap = new Map((emps || []).map((e) => [e.id, e]));
-      setEmployeesList(emps || []);
-
-      // 5. Fetch branches for mapping
-      const { data: brs } = await supabase
-        .from("branches")
-        .select("id, name")
-        .eq("company_id", company.id);
-      const brMap = new Map((brs || []).map((b) => [b.id, b]));
-
-      // Attach employee and branch objects
-      const enhancedReqs = (reqData || []).map((r) => ({
+      const enhancedReqs = (reqRes.data || []).map((r) => ({
         ...r,
         employee: empMap.get(r.employee_id),
         branch: r.branch_id ? brMap.get(r.branch_id) : undefined,
       }));
       setRequests(enhancedReqs);
 
-      const enhancedOts = (otData || []).map((o) => ({
+      const enhancedOts = (otRes.data || []).map((o) => ({
         ...o,
         employee: empMap.get(o.employee_id),
       }));
       setOvertimeLogs(enhancedOts);
 
-      const enhancedSals = (salData || []).map((s) => ({
+      const enhancedSals = (salRes.data || []).map((s) => ({
         ...s,
         employee: empMap.get(s.employee_id),
       }));
       setSalaryRequests(enhancedSals);
+
+      setCachedData(cacheKey, {
+        requests: enhancedReqs,
+        overtimeLogs: enhancedOts,
+        salaryRequests: enhancedSals,
+        employeesList: emps,
+      });
     } catch (err: any) {
       console.error("Requests center fetch error:", err);
     } finally {

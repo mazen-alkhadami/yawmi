@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -123,10 +124,41 @@ export default function SuperAdminHQPage() {
   }, []);
 
   const checkAdminAndLoadData = async () => {
-    setLoading(true);
+    const cacheKey = "hq_admin_portal";
+    const cached = getCachedData<{
+      totalCompanies: number;
+      activeCompanies: number;
+      suspendedCompanies: number;
+      totalEmployees: number;
+      pendingUpgradesCount: number;
+      companies: CompanyRecord[];
+      upgradeRequests: UpgradeRequestRecord[];
+      settings: PlatformSettingsState;
+    }>(cacheKey);
+
+    if (cached) {
+      setTotalCompanies(cached.totalCompanies);
+      setActiveCompanies(cached.activeCompanies);
+      setSuspendedCompanies(cached.suspendedCompanies);
+      setTotalEmployees(cached.totalEmployees);
+      setPendingUpgradesCount(cached.pendingUpgradesCount);
+      setCompanies(cached.companies || []);
+      setUpgradeRequests(cached.upgradeRequests || []);
+      if (cached.settings) setSettings(cached.settings);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: sessionData } = await supabase.auth.getSession();
+      let user = sessionData?.session?.user || null;
       if (!user) {
+        const { data: userData } = await supabase.auth.getUser();
+        user = userData?.user || null;
+      }
+      if (!user) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -143,12 +175,59 @@ export default function SuperAdminHQPage() {
         return;
       }
 
-      await Promise.all([
-        loadOverviewStats(),
-        loadCompanies(),
-        loadUpgradeRequests(),
-        loadPlatformSettings(),
-      ]);
+      const [compCountRes, actCountRes, suspCountRes, empCountRes, upCountRes, compsRes, reqsRes, platRes] =
+        await Promise.all([
+          supabase.from("companies").select("id", { count: "exact", head: true }),
+          supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "active"),
+          supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "suspended"),
+          supabase.from("profiles").select("id", { count: "exact", head: true }).neq("role", "super_admin"),
+          supabase.from("upgrade_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+          supabase.from("companies").select("*").order("created_at", { ascending: false }),
+          supabase.from("upgrade_requests").select("*, company:company_id(id, name, plan)").order("created_at", { ascending: false }),
+          supabase.from("platform_settings").select("*").limit(1).maybeSingle(),
+        ]);
+
+      const nextTotal = compCountRes.count || 0;
+      const nextActive = actCountRes.count || 0;
+      const nextSusp = suspCountRes.count || 0;
+      const nextEmp = empCountRes.count || 0;
+      const nextPending = upCountRes.count || 0;
+      const nextComps = (compsRes.data as any) || [];
+      const nextReqs = (reqsRes.data as any) || [];
+
+      setTotalCompanies(nextTotal);
+      setActiveCompanies(nextActive);
+      setSuspendedCompanies(nextSusp);
+      setTotalEmployees(nextEmp);
+      setPendingUpgradesCount(nextPending);
+      setCompanies(nextComps);
+      setUpgradeRequests(nextReqs);
+
+      let nextSettings = settings;
+      if (platRes.data) {
+        const bank = platRes.data.bank_transfer_details || {};
+        nextSettings = {
+          id: platRes.data.id,
+          commercial_reg_number: platRes.data.commercial_reg_number || "",
+          freelance_cert_number: platRes.data.freelance_cert_number || "",
+          sbc_verification_url: platRes.data.sbc_verification_url || "",
+          bank_name: bank.bank_name || "",
+          account_name: bank.account_name || "",
+          iban: bank.iban || "",
+        };
+        setSettings(nextSettings);
+      }
+
+      setCachedData(cacheKey, {
+        totalCompanies: nextTotal,
+        activeCompanies: nextActive,
+        suspendedCompanies: nextSusp,
+        totalEmployees: nextEmp,
+        pendingUpgradesCount: nextPending,
+        companies: nextComps,
+        upgradeRequests: nextReqs,
+        settings: nextSettings,
+      });
     } catch (err) {
       console.error("Super Admin check error:", err);
       router.push("/login");
@@ -247,6 +326,7 @@ export default function SuperAdminHQPage() {
   };
 
   const handleLogout = async () => {
+    clearUserCache();
     await supabase.auth.signOut();
     router.push("/login");
   };
@@ -469,9 +549,13 @@ export default function SuperAdminHQPage() {
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {loading ? (
-          <div className="py-24 text-center text-slate-400 space-y-3">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto" />
-            <p className="text-sm font-bold">{t("loading")}</p>
+          <div className="space-y-6 animate-pulse py-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+              ))}
+            </div>
+            <div className="h-64 rounded-2xl bg-slate-200 dark:bg-slate-800" />
           </div>
         ) : (
           <>

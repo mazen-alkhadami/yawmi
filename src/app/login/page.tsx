@@ -9,6 +9,7 @@ import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { mapErrorMessage } from "@/lib/utils/error-mapping";
+import { clearUserCache } from "@/lib/instantCache";
 import {
   Mail,
   Lock,
@@ -119,6 +120,7 @@ export default function LoginPage() {
         throw new Error(authError?.message || t("login_error"));
       }
 
+      clearUserCache();
       const user = authData.user;
 
       // 2. Fetch user profile from public.profiles cleanly

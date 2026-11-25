@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
+import { getCachedData, setCachedData } from "@/lib/instantCache";
 import {
   FileBarChart2,
   Calendar,
@@ -84,6 +85,10 @@ export default function MonthlyReportsPage() {
   }, [company?.id, selectedMonth, selectedYear, selectedBranchId]);
 
   const loadBranches = async () => {
+    const cacheKey = `reports_branches_${company!.id}`;
+    const cached = getCachedData<any[]>(cacheKey);
+    if (cached) setBranches(cached);
+
     try {
       const { data } = await supabase
         .from("branches")
@@ -91,16 +96,26 @@ export default function MonthlyReportsPage() {
         .eq("company_id", company!.id)
         .eq("is_active", true)
         .order("name", { ascending: true });
-      setBranches(data || []);
+      const list = data || [];
+      setBranches(list);
+      setCachedData(cacheKey, list);
     } catch (err) {
       console.error("Error loading branches:", err);
     }
   };
 
   const loadReportData = async () => {
-    setLoading(true);
+    const cacheKey = `reports_${company!.id}_${selectedBranchId}_${selectedYear}_${selectedMonth}`;
+    const cached = getCachedData<{ monthStatus: MonthStatusRecord; reportRows: EmployeeReportRow[] }>(cacheKey);
+    if (cached) {
+      setMonthStatus(cached.monthStatus);
+      setReportRows(cached.reportRows || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      // 1. Fetch Month Closing Record
       let statusQuery = supabase
         .from("monthly_reports")
         .select("id, status, closed_at, is_exceptional_close, close_note, closer:closed_by(full_name)")
@@ -114,22 +129,6 @@ export default function MonthlyReportsPage() {
         statusQuery = statusQuery.is("branch_id", null);
       }
 
-      const { data: reportStatusData } = await statusQuery.maybeSingle();
-
-      if (reportStatusData) {
-        setMonthStatus({
-          id: reportStatusData.id,
-          status: reportStatusData.status as any,
-          closed_at: reportStatusData.closed_at,
-          closed_by_name: (reportStatusData.closer as any)?.full_name,
-          is_exceptional_close: reportStatusData.is_exceptional_close,
-          close_note: reportStatusData.close_note,
-        });
-      } else {
-        setMonthStatus({ status: "open" });
-      }
-
-      // 2. Fetch Active Employees
       let empQuery = supabase
         .from("profiles")
         .select("id, full_name, job_title, branch_id, branch:branch_id(name)")
@@ -140,14 +139,6 @@ export default function MonthlyReportsPage() {
         empQuery = empQuery.eq("branch_id", selectedBranchId);
       }
 
-      const { data: employeesData } = await empQuery.order("full_name", { ascending: true });
-
-      if (!employeesData || employeesData.length === 0) {
-        setReportRows([]);
-        return;
-      }
-
-      // 3. Fetch attendance logs for selected month
       const startDayStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`;
       const nextMonth = selectedMonth === 12 ? 1 : selectedMonth + 1;
       const nextYear = selectedMonth === 12 ? selectedYear + 1 : selectedYear;
@@ -164,8 +155,34 @@ export default function MonthlyReportsPage() {
         attQuery = attQuery.eq("branch_id", selectedBranchId);
       }
 
-      const { data: attendanceData } = await attQuery;
-      const logs = attendanceData || [];
+      // Run all 3 queries in parallel
+      const [statusRes, empRes, attRes] = await Promise.all([
+        statusQuery.maybeSingle(),
+        empQuery.order("full_name", { ascending: true }),
+        attQuery,
+      ]);
+
+      const reportStatusData = statusRes.data;
+      const nextMonthStatus: MonthStatusRecord = reportStatusData
+        ? {
+            id: reportStatusData.id,
+            status: reportStatusData.status as any,
+            closed_at: reportStatusData.closed_at,
+            closed_by_name: (reportStatusData.closer as any)?.full_name,
+            is_exceptional_close: reportStatusData.is_exceptional_close,
+            close_note: reportStatusData.close_note,
+          }
+        : { status: "open" };
+      setMonthStatus(nextMonthStatus);
+
+      const employeesData = empRes.data;
+      if (!employeesData || employeesData.length === 0) {
+        setReportRows([]);
+        setCachedData(cacheKey, { monthStatus: nextMonthStatus, reportRows: [] });
+        return;
+      }
+
+      const logs = attRes.data || [];
 
       // 4. Aggregate logs per employee
       const aggregated: EmployeeReportRow[] = employeesData.map((emp: any) => {
@@ -192,6 +209,7 @@ export default function MonthlyReportsPage() {
       });
 
       setReportRows(aggregated);
+      setCachedData(cacheKey, { monthStatus: nextMonthStatus, reportRows: aggregated });
     } catch (err) {
       console.error("Error loading report data:", err);
     } finally {

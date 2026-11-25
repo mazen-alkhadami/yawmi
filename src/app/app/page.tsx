@@ -19,9 +19,12 @@ import {
   hashPin,
   verifyPin,
   checkBiometricSupport,
+  registerBiometricCredential,
+  verifyBiometricCredential,
   isSessionUnlocked,
   setSessionUnlocked,
 } from "@/lib/attendance/quick-unlock";
+import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import {
   Home,
   History,
@@ -312,15 +315,35 @@ export default function EmployeeApp() {
     setShowInstallBanner(false);
   };
 
-  // Fetch Employee Data
+  // Fetch Employee Data (Stale-While-Revalidate + Parallel Queries)
   const fetchEmployeeData = async () => {
-    try {
+    const cached = getCachedData<any>("employee_app");
+    if (cached) {
+      if (cached.user) setUser(cached.user);
+      if (cached.profile) setProfile(cached.profile);
+      if (cached.branch !== undefined) setBranch(cached.branch);
+      if (cached.shift !== undefined) setShift(cached.shift);
+      if (cached.availableShifts) setAvailableShifts(cached.availableShifts);
+      if (cached.announcements) setAnnouncements(cached.announcements);
+      if (cached.todayLog !== undefined) setTodayLog(cached.todayLog);
+      if (cached.historyLogs) setHistoryLogs(cached.historyLogs);
+      if (cached.outgoingRequests) setOutgoingRequests(cached.outgoingRequests);
+      if (cached.incomingRequests) setIncomingRequests(cached.incomingRequests);
+      setLoading(false);
+    } else {
       setLoading(true);
-      const {
-        data: { user: authUser },
-      } = await supabase.auth.getUser();
+    }
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      let authUser = sessionData?.session?.user || null;
+      if (!authUser) {
+        const { data: userData } = await supabase.auth.getUser();
+        authUser = userData?.user || null;
+      }
 
       if (!authUser) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -334,75 +357,101 @@ export default function EmployeeApp() {
         .single();
 
       if (profErr || !prof) {
+        clearUserCache();
         router.push("/login");
         return;
       }
       setProfile(prof);
 
-      // Fetch Branch if assigned
-      if (prof.branch_id) {
-        const { data: bData } = await supabase
-          .from("branches")
-          .select("*")
-          .eq("id", prof.branch_id)
-          .single();
-        setBranch(bData);
-      }
-
-      // Fetch Shift Template if assigned
-      if (prof.shift_template_id) {
-        const { data: sData } = await supabase
-          .from("shift_templates")
-          .select("*")
-          .eq("id", prof.shift_template_id)
-          .single();
-        setShift(sData);
-      }
-
-      // Fetch company shifts list & announcements
-      let loadedAnnouncements: any[] = [];
-      if (prof.company_id) {
-        const { data: allShifts } = await supabase
-          .from("shift_templates")
-          .select("id, name")
-          .eq("company_id", prof.company_id);
-        setAvailableShifts(allShifts || []);
-
-        const { data: annData } = await supabase
-          .from("announcements")
-          .select("*")
-          .eq("company_id", prof.company_id)
-          .order("created_at", { ascending: false })
-          .limit(15);
-        loadedAnnouncements = annData || [];
-        setAnnouncements(loadedAnnouncements);
-      }
-
-      // Fetch today's log
       const today = new Date().toISOString().split("T")[0];
-      const { data: logData } = await supabase
-        .from("attendance_logs")
-        .select("*")
-        .eq("employee_id", authUser.id)
-        .eq("shift_date", today)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
 
+      // Run all independent queries in parallel
+      const [
+        branchRes,
+        shiftRes,
+        allShiftsRes,
+        annRes,
+        todayLogRes,
+        historyRes,
+        outReqsRes,
+        inReqsRes,
+      ] = await Promise.all([
+        prof.branch_id
+          ? supabase.from("branches").select("*").eq("id", prof.branch_id).single()
+          : Promise.resolve({ data: null }),
+        prof.shift_template_id
+          ? supabase.from("shift_templates").select("*").eq("id", prof.shift_template_id).single()
+          : Promise.resolve({ data: null }),
+        prof.company_id
+          ? supabase.from("shift_templates").select("id, name").eq("company_id", prof.company_id)
+          : Promise.resolve({ data: [] }),
+        prof.company_id
+          ? supabase
+              .from("announcements")
+              .select("*")
+              .eq("company_id", prof.company_id)
+              .order("created_at", { ascending: false })
+              .limit(15)
+          : Promise.resolve({ data: [] }),
+        supabase
+          .from("attendance_logs")
+          .select("*")
+          .eq("employee_id", authUser.id)
+          .eq("shift_date", today)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("attendance_logs")
+          .select("*")
+          .eq("employee_id", authUser.id)
+          .order("shift_date", { ascending: false })
+          .limit(30),
+        supabase
+          .from("requests")
+          .select("*")
+          .eq("employee_id", authUser.id)
+          .eq("direction", "outgoing")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("requests")
+          .select("*")
+          .eq("employee_id", authUser.id)
+          .eq("direction", "incoming")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      const bData = branchRes.data || null;
+      const sData = shiftRes.data || null;
+      const allShifts = allShiftsRes.data || [];
+      const loadedAnnouncements = annRes.data || [];
+      const logData = todayLogRes.data || null;
+      const logs = historyRes.data || [];
+      const outReqsList = outReqsRes.data || [];
+      const inReqsList = inReqsRes.data || [];
+
+      setBranch(bData);
+      setShift(sData);
+      setAvailableShifts(allShifts);
+      setAnnouncements(loadedAnnouncements);
       setTodayLog(logData);
+      setHistoryLogs(logs);
+      setOutgoingRequests(outReqsList);
+      setIncomingRequests(inReqsList);
 
-      // Fetch history logs
-      const { data: logs } = await supabase
-        .from("attendance_logs")
-        .select("*")
-        .eq("employee_id", authUser.id)
-        .order("shift_date", { ascending: false })
-        .limit(30);
-
-      setHistoryLogs(logs || []);
-
-      // Fetch Requests (Outgoing and Incoming)
-      const outReqsList = await fetchRequests(authUser.id);
+      // Persist fresh payload in instantCache
+      setCachedData("employee_app", {
+        user: { id: authUser.id, email: authUser.email },
+        profile: prof,
+        branch: bData,
+        shift: sData,
+        availableShifts: allShifts,
+        announcements: loadedAnnouncements,
+        todayLog: logData,
+        historyLogs: logs,
+        outgoingRequests: outReqsList,
+        incomingRequests: inReqsList,
+      });
 
       // Compute unread feed count (announcements + non-pending request updates)
       if (typeof window !== "undefined") {
@@ -581,13 +630,31 @@ export default function EmployeeApp() {
 
   const handleBiometricUnlock = async () => {
     if (!user) return;
-    try {
+    setPinError(null);
+    const res = await verifyBiometricCredential(user.id);
+    if (res.ok) {
       setSessionUnlocked(user.id, true);
       setIsLocked(false);
       setEnteredPin("");
       setPinError(null);
-    } catch {
-      setPinError("فشل التحقق الحيوي");
+    } else if (res.error === "missing_credential") {
+      setPinError(
+        language === "ar"
+          ? "لم يتم تسجيل بصمة الجهاز بعد. يرجى الدخول برمز PIN وإعادة تفعيل البصمة."
+          : "Biometric credential missing. Please unlock with PIN and re-enable."
+      );
+    } else if (res.error === "unsupported") {
+      setPinError(
+        language === "ar"
+          ? "المتصفح أو الجهاز لا يدعم التحقق الحيوي. استخدم رمز PIN."
+          : "Biometrics unsupported on this device. Use PIN."
+      );
+    } else {
+      setPinError(
+        language === "ar"
+          ? "تم إلغاء التحقق الحيوي أو فشل. يرجى المحاولة مجدداً أو إدخال رمز PIN."
+          : "Biometric verification cancelled or failed. Use PIN."
+      );
     }
   };
 
@@ -621,22 +688,69 @@ export default function EmployeeApp() {
   const handleDisablePin = () => {
     if (!user) return;
     if (confirm("هل أنت متأكد من تعطيل القفل السريع برمز PIN؟")) {
-      saveQuickUnlockSettings(user.id, { pinEnabled: false, pinHash: null, biometricEnabled: false });
-      setQuickSettings({ pinEnabled: false, pinHash: null, biometricEnabled: false });
+      saveQuickUnlockSettings(user.id, {
+        pinEnabled: false,
+        pinHash: null,
+        biometricEnabled: false,
+        biometricCredentialId: null,
+      });
+      setQuickSettings({
+        pinEnabled: false,
+        pinHash: null,
+        biometricEnabled: false,
+        biometricCredentialId: null,
+      });
     }
   };
 
-  const handleToggleBiometric = (enabled: boolean) => {
+  const handleToggleBiometric = async (enabled: boolean) => {
     if (!user) return;
     if (enabled && !quickSettings.pinEnabled) {
-      alert("يرجى تعيين رمز PIN أولاً ليكون خياراً احتياطياً.");
+      alert(
+        language === "ar"
+          ? "يرجى تعيين رمز PIN أولاً ليكون خياراً احتياطياً."
+          : "Please set a 6-digit PIN first as a fallback."
+      );
       return;
     }
-    saveQuickUnlockSettings(user.id, { biometricEnabled: enabled });
-    setQuickSettings((prev) => ({ ...prev, biometricEnabled: enabled }));
+
+    if (enabled) {
+      const res = await registerBiometricCredential(
+        user.id,
+        profile?.full_name || user.email || "yawmi-employee"
+      );
+      if (!res.ok) {
+        alert(
+          res.error === "unsupported"
+            ? language === "ar"
+              ? "متصفحك أو جهازك لا يدعم المصادقة البيومترية (WebAuthn Platform Authenticator)."
+              : "Your browser or device does not support hardware biometrics."
+            : language === "ar"
+            ? "تعذر تسجيل البصمة الحيوية أو تم إلغاء العملية."
+            : "Failed to register hardware biometrics or cancelled."
+        );
+        return;
+      }
+      setQuickSettings((prev) => ({
+        ...prev,
+        biometricEnabled: true,
+        biometricCredentialId: res.credentialId || null,
+      }));
+    } else {
+      saveQuickUnlockSettings(user.id, {
+        biometricEnabled: false,
+        biometricCredentialId: null,
+      });
+      setQuickSettings((prev) => ({
+        ...prev,
+        biometricEnabled: false,
+        biometricCredentialId: null,
+      }));
+    }
   };
 
   const handleLogout = async () => {
+    clearUserCache();
     await supabase.auth.signOut();
     router.push("/login");
   };
@@ -1147,8 +1261,8 @@ export default function EmployeeApp() {
             </p>
           )}
 
-          {/* On-screen Keypad Grid */}
-          <div className="grid grid-cols-3 gap-3 w-64 pt-2">
+          {/* On-screen Keypad Grid (Always LTR so 1-2-3, 4-5-6, 7-8-9 render left-to-right) */}
+          <div dir="ltr" className="grid grid-cols-3 gap-3 w-64 pt-2">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
               <button
                 key={digit}
@@ -1253,9 +1367,12 @@ export default function EmployeeApp() {
       {/* Main Content by Tab */}
       <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4">
         {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-            <span className="text-xs font-semibold text-slate-400">{t("loading")}</span>
+          <div className="space-y-4 animate-pulse">
+            <div className="h-24 rounded-2xl bg-indigo-200/50 dark:bg-indigo-950/40" />
+            <div className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800/80" />
+            <div className="h-16 rounded-2xl bg-slate-200 dark:bg-slate-800/80" />
+            <div className="h-14 rounded-2xl bg-emerald-200/50 dark:bg-emerald-950/30" />
+            <div className="h-20 rounded-2xl bg-slate-200 dark:bg-slate-800/80" />
           </div>
         ) : (
           <>

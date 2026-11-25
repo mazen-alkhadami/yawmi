@@ -9,6 +9,7 @@ import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import {
   LayoutDashboard,
   MapPin,
@@ -75,6 +76,13 @@ export default function DashboardLayout({
   const [company, setCompany] = useState<any>(null);
 
   const fetchSessionAndCompany = async () => {
+    const cached = getCachedData<{ profile: any; company: any }>("dashboard_layout");
+    if (cached?.profile) {
+      setProfile(cached.profile);
+      setCompany(cached.company || null);
+      setLoading(false);
+    }
+
     try {
       // 1. Check local session first for fast load
       const { data: sessionData } = await supabase.auth.getSession();
@@ -86,6 +94,7 @@ export default function DashboardLayout({
       }
 
       if (!userId) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -103,6 +112,7 @@ export default function DashboardLayout({
         .maybeSingle();
 
       if (profErr || !prof) {
+        clearUserCache();
         router.push("/login");
         return;
       }
@@ -110,6 +120,7 @@ export default function DashboardLayout({
       setProfile(prof);
       const compData = (prof as any).companies || null;
       setCompany(compData);
+      setCachedData("dashboard_layout", { profile: prof, company: compData });
     } catch (err) {
       console.error("Dashboard layout error:", err);
     } finally {
@@ -118,7 +129,11 @@ export default function DashboardLayout({
   };
 
   const updateCompanyLocally = (data: Partial<NonNullable<CompanyContextData["company"]>>) => {
-    setCompany((prev: any) => (prev ? { ...prev, ...data } : null));
+    setCompany((prev: any) => {
+      const next = prev ? { ...prev, ...data } : null;
+      setCachedData("dashboard_layout", { profile, company: next });
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -126,6 +141,7 @@ export default function DashboardLayout({
   }, []);
 
   const handleLogout = async () => {
+    clearUserCache();
     await supabase.auth.signOut();
     router.push("/login");
   };
