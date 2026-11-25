@@ -8,6 +8,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ProductTour, TourStep } from "@/components/ProductTour";
 import { verifyQrToken } from "@/lib/attendance/qr";
 import { calculateHaversineDistanceMeters } from "@/lib/attendance/geo";
 import { getOrCreateDeviceId, verifyDeviceBinding } from "@/lib/attendance/device";
@@ -55,11 +56,18 @@ import {
   ShieldCheck,
   Lock,
   Delete,
+  HelpCircle,
+  Bell,
+  Megaphone,
+  Download,
+  Share,
+  Palmtree,
+  Timer,
 } from "lucide-react";
 
 export default function EmployeeApp() {
   const router = useRouter();
-  const { t, dir } = useLanguage();
+  const { t, dir, language } = useLanguage();
   const supabase = createClient();
 
   const [activeTab, setActiveTab] = useState<"home" | "history" | "requests" | "profile">("home");
@@ -136,6 +144,23 @@ export default function EmployeeApp() {
   const [confirmPin, setConfirmPin] = useState("");
   const [setupError, setSetupError] = useState<string | null>(null);
 
+  // Live Shift Elapsed Timer (HH:MM:SS)
+  const [elapsedTimer, setElapsedTimer] = useState("00:00:00");
+
+  // Company Announcements & Notifications Feed
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [feedDrawerOpen, setFeedDrawerOpen] = useState(false);
+  const [unreadFeedCount, setUnreadFeedCount] = useState(0);
+
+  // Smart PWA Install Banner & Tracking
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isIosSafari, setIsIosSafari] = useState(false);
+  const [installingPwa, setInstallingPwa] = useState(false);
+
+  // Interactive Employee Product Tour
+  const [tourOpen, setTourOpen] = useState(false);
+
   // Live Clock
   useEffect(() => {
     const updateTime = () => {
@@ -161,6 +186,131 @@ export default function EmployeeApp() {
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Live Shift Elapsed Timer Effect
+  useEffect(() => {
+    if (!todayLog?.check_in_at || todayLog?.check_out_at) {
+      setElapsedTimer("00:00:00");
+      return;
+    }
+
+    const updateElapsed = () => {
+      const start = new Date(todayLog.check_in_at).getTime();
+      const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const hrs = String(Math.floor(diffSec / 3600)).padStart(2, "0");
+      const mins = String(Math.floor((diffSec % 3600) / 60)).padStart(2, "0");
+      const secs = String(diffSec % 60).padStart(2, "0");
+      setElapsedTimer(`${hrs}:${mins}:${secs}`);
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [todayLog?.check_in_at, todayLog?.check_out_at]);
+
+  // Record PWA Install to Supabase (deduplicated per user/device)
+  const recordPwaInstall = async (platformName: string, targetUser?: any, targetProfile?: any) => {
+    const activeUser = targetUser || user;
+    const activeProfile = targetProfile || profile;
+    if (!activeUser?.id || typeof window === "undefined") return;
+
+    const storageKey = `yawmi_pwa_installed_${activeUser.id}`;
+    if (localStorage.getItem(storageKey)) return;
+
+    try {
+      const { error } = await supabase.from("pwa_installs").insert([
+        {
+          user_id: activeUser.id,
+          company_id: activeProfile?.company_id || null,
+          role: activeProfile?.role || "employee",
+          platform: platformName,
+          user_agent: navigator.userAgent,
+        },
+      ]);
+      if (!error) {
+        localStorage.setItem(storageKey, new Date().toISOString());
+      }
+    } catch (err) {
+      console.error("PWA install log error:", err);
+    } finally {
+      setShowInstallBanner(false);
+    }
+  };
+
+  // Smart PWA Install Banner Detection
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+
+    if (isStandalone) {
+      return;
+    }
+
+    const dismissed = localStorage.getItem("yawmi_pwa_banner_dismissed");
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(ua);
+    const isSafari = /safari/.test(ua) && !/crios|fxios|edgios/.test(ua);
+
+    if (isIos && isSafari) {
+      setIsIosSafari(true);
+      if (!dismissed) {
+        setShowInstallBanner(true);
+      }
+    }
+
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      if (!localStorage.getItem("yawmi_pwa_banner_dismissed")) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setShowInstallBanner(false);
+      recordPwaInstall("android_chrome");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, [user?.id, profile?.company_id]);
+
+  const handleInstallPwaClick = async () => {
+    if (isIosSafari) {
+      await recordPwaInstall("ios_safari");
+      return;
+    }
+    if (!deferredPrompt) return;
+    setInstallingPwa(true);
+    try {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        await recordPwaInstall("android_chrome");
+      }
+      setDeferredPrompt(null);
+    } catch (err) {
+      console.error("PWA prompt error:", err);
+    } finally {
+      setInstallingPwa(false);
+    }
+  };
+
+  const handleDismissInstallBanner = () => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("yawmi_pwa_banner_dismissed", "1");
+    }
+    setShowInstallBanner(false);
+  };
 
   // Fetch Employee Data
   const fetchEmployeeData = async () => {
@@ -209,13 +359,23 @@ export default function EmployeeApp() {
         setShift(sData);
       }
 
-      // Fetch company shifts list for shift change requests
+      // Fetch company shifts list & announcements
+      let loadedAnnouncements: any[] = [];
       if (prof.company_id) {
         const { data: allShifts } = await supabase
           .from("shift_templates")
           .select("id, name")
           .eq("company_id", prof.company_id);
         setAvailableShifts(allShifts || []);
+
+        const { data: annData } = await supabase
+          .from("announcements")
+          .select("*")
+          .eq("company_id", prof.company_id)
+          .order("created_at", { ascending: false })
+          .limit(15);
+        loadedAnnouncements = annData || [];
+        setAnnouncements(loadedAnnouncements);
       }
 
       // Fetch today's log
@@ -242,15 +402,39 @@ export default function EmployeeApp() {
       setHistoryLogs(logs || []);
 
       // Fetch Requests (Outgoing and Incoming)
-      await fetchRequests(authUser.id);
+      const outReqsList = await fetchRequests(authUser.id);
+
+      // Compute unread feed count (announcements + non-pending request updates)
+      if (typeof window !== "undefined") {
+        const lastSeenStr = localStorage.getItem(`yawmi_feed_seen_${authUser.id}`);
+        const lastSeenTime = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
+        const unreadAnn = loadedAnnouncements.filter(
+          (a) => new Date(a.created_at).getTime() > lastSeenTime
+        ).length;
+        const unreadReqs = (outReqsList || []).filter(
+          (r: any) =>
+            r.status !== "pending" &&
+            new Date(r.updated_at || r.created_at).getTime() > lastSeenTime
+        ).length;
+        setUnreadFeedCount(unreadAnn + unreadReqs);
+      }
 
       // Check Quick Unlock Settings
       const unlockSettings = getQuickUnlockSettings(authUser.id);
       setQuickSettings(unlockSettings);
       checkBiometricSupport().then(setBiometricSupported);
 
-      if ((unlockSettings.pinEnabled || unlockSettings.biometricEnabled) && !isSessionUnlocked(authUser.id)) {
+      const lockedNow =
+        (unlockSettings.pinEnabled || unlockSettings.biometricEnabled) &&
+        !isSessionUnlocked(authUser.id);
+      if (lockedNow) {
         setIsLocked(true);
+      } else if (
+        !prof.has_completed_tour &&
+        typeof window !== "undefined" &&
+        !localStorage.getItem(`yawmi_tour_done_${authUser.id}`)
+      ) {
+        setTourOpen(true);
       }
     } catch (err) {
       console.error("Employee app load error:", err);
@@ -276,10 +460,92 @@ export default function EmployeeApp() {
         .eq("direction", "incoming")
         .order("created_at", { ascending: false });
       setIncomingRequests(inReqs || []);
+      return outReqs || [];
     } catch (err) {
       console.error("Error fetching requests:", err);
+      return [];
     }
   };
+
+  const handleOpenFeed = () => {
+    setFeedDrawerOpen(true);
+    setUnreadFeedCount(0);
+    if (user?.id && typeof window !== "undefined") {
+      localStorage.setItem(`yawmi_feed_seen_${user.id}`, new Date().toISOString());
+    }
+  };
+
+  const handleCompleteTour = async () => {
+    setTourOpen(false);
+    setActiveTab("home");
+    if (user?.id) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`yawmi_tour_done_${user.id}`, "1");
+      }
+      try {
+        await supabase
+          .from("profiles")
+          .update({ has_completed_tour: true })
+          .eq("id", user.id);
+        setProfile((prev: any) => (prev ? { ...prev, has_completed_tour: true } : prev));
+      } catch (err) {
+        console.error("Error updating tour status:", err);
+      }
+    }
+  };
+
+  const employeeTourSteps: TourStep[] = [
+    {
+      id: "welcome-status",
+      targetId: "tour-home-status",
+      titleAr: "مرحباً بك في يومي! حالة الدوام المباشرة",
+      titleEn: "Welcome to Yawmi! Live Shift Status",
+      descAr: "من هنا تتابع حالة حضورك اليوم، وقت تسجيل الدخول، والعدّاد المباشر لساعات عملك، مع تنبيهات فترة السماح.",
+      descEn: "Track your live shift status, check-in timestamp, ticking elapsed hours, and grace-period status.",
+      icon: <Timer className="w-5 h-5" />,
+      onEnter: () => setActiveTab("home"),
+    },
+    {
+      id: "qr-checkin",
+      targetId: "tour-checkin-btn",
+      titleAr: "تسجيل الحضور والانصراف بالباركود",
+      titleEn: "QR Check-In & Check-Out Scanner",
+      descAr: "اضغط هنا لفتح الكاميرا ومسح باركود الفرع مع التحقق من الموقع الجغرافي (GPS) والسيلفي إذا كان مفعلاً.",
+      descEn: "Tap here to open your rear camera and scan the branch QR code with instant GPS & optional selfie check.",
+      icon: <QrCode className="w-5 h-5" />,
+      onEnter: () => setActiveTab("home"),
+    },
+    {
+      id: "leave-balance",
+      targetId: "tour-leave-balance",
+      titleAr: "رصيد الإجازات السنوية وسجل الحضور",
+      titleEn: "Leave Balance & Attendance History",
+      descAr: "تابع رصيد إجازاتك السنوية المتبقي واطلب إجازة بضغطة زر، أو استعرض سجل حضورك لآخر 30 يوماً من تبويب السجل.",
+      descEn: "View your remaining annual leave days, submit quick leave requests, or inspect your 30-day attendance log.",
+      icon: <Palmtree className="w-5 h-5" />,
+      onEnter: () => setActiveTab("home"),
+    },
+    {
+      id: "requests-announcements",
+      targetId: "tour-nav-requests",
+      titleAr: "الطلبات والتعميمات الإدارية",
+      titleEn: "Requests & Company Announcements",
+      descAr: "قدّم طلبات الإجازة والاستئذان والتعديل اليدوي، وتابع ردود الإدارة وتعميمات الشركة من أيقونة الجرس بالأعلى.",
+      descEn: "Submit leave, permission, or manual edit requests and stay updated via the top Announcements & Notifications bell.",
+      icon: <Megaphone className="w-5 h-5" />,
+      onEnter: () => setActiveTab("home"),
+    },
+    {
+      id: "profile-security",
+      targetId: "tour-nav-profile",
+      titleAr: "الملف الشخصي والأمان السريع",
+      titleEn: "Profile & Quick Security",
+      descAr: "فعّل القفل السريع برمز PIN أو بصمة الإصبع/الوجه، وبدّل اللغة والمظهر في أي وقت من تبويب الملف الشخصي.",
+      descEn: "Enable 6-digit PIN or biometric quick unlock, and customize your language and theme from the Profile tab.",
+      icon: <ShieldCheck className="w-5 h-5" />,
+      onEnter: () => setActiveTab("home"),
+    },
+  ];
 
   useEffect(() => {
     fetchEmployeeData();
@@ -941,8 +1207,34 @@ export default function EmployeeApp() {
       {/* Top Mobile Bar */}
       <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between shadow-sm">
         <YawmiLogo size="sm" showText={true} />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {/* Replay Onboarding Tour Button */}
+          <button
+            onClick={() => setTourOpen(true)}
+            className="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
+            title={language === "ar" ? "جولة تعريفية بالتطبيق" : "App Tour"}
+            aria-label={language === "ar" ? "جولة تعريفية بالتطبيق" : "App Tour"}
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+
+          {/* Announcements & Notifications Feed Button */}
+          <button
+            onClick={handleOpenFeed}
+            className="relative flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
+            title={language === "ar" ? "التعميمات والإشعارات" : "Announcements & Updates"}
+            aria-label={language === "ar" ? "التعميمات والإشعارات" : "Announcements & Updates"}
+          >
+            <Bell className="w-4 h-4" />
+            {unreadFeedCount > 0 && (
+              <span className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
+                {unreadFeedCount > 9 ? "9+" : unreadFeedCount}
+              </span>
+            )}
+          </button>
+
           <ThemeToggle />
+
           <button
             onClick={() => setActiveTab("profile")}
             className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shadow-sm ${
@@ -970,6 +1262,74 @@ export default function EmployeeApp() {
             {/* TAB 1: HOME */}
             {activeTab === "home" && (
               <div className="space-y-4 animate-fadeIn">
+                {/* Smart PWA Install Banner */}
+                {showInstallBanner && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-lg shadow-emerald-600/20 space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center shrink-0">
+                          <Download className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-xs font-extrabold">
+                            {language === "ar"
+                              ? "تثبيت تطبيق يومي على الشاشة الرئيسية"
+                              : "Install Yawmi App on Home Screen"}
+                          </h3>
+                          <p className="text-[11px] text-emerald-100 leading-relaxed mt-0.5">
+                            {isIosSafari
+                              ? language === "ar"
+                                ? "على الآيفون: اضغط زر المشاركة (Share) بالأسفل ثم اختر «إضافة إلى الشاشة الرئيسية»."
+                                : "On iOS: tap Share below, then choose 'Add to Home Screen'."
+                              : language === "ar"
+                              ? "وصول أسرع لتسجيل الحضور والانصراف بلمسة واحدة دون فتح المتصفح."
+                              : "Faster one-tap access for daily check-in and check-out."}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDismissInstallBanner}
+                        className="p-1 text-emerald-100 hover:text-white rounded-lg transition"
+                        aria-label="Dismiss"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isIosSafari ? (
+                        <button
+                          type="button"
+                          onClick={handleInstallPwaClick}
+                          className="w-full py-2 px-3 rounded-xl bg-white text-emerald-900 font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition shadow-sm"
+                        >
+                          <Share className="w-3.5 h-3.5" />
+                          <span>
+                            {language === "ar" ? "تمت الإضافة للشاشة الرئيسية" : "I Added It to Home Screen"}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleInstallPwaClick}
+                          disabled={installingPwa || !deferredPrompt}
+                          className="w-full py-2 px-3 rounded-xl bg-white text-emerald-900 font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition shadow-sm disabled:opacity-70"
+                        >
+                          {installingPwa ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {language === "ar" ? "تثبيت التطبيق الآن" : "Install App Now"}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* User Greeting Card */}
                 <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-700 via-indigo-600 to-indigo-900 text-white shadow-lg shadow-indigo-600/15">
                   <div className="flex items-center justify-between">
@@ -999,49 +1359,76 @@ export default function EmployeeApp() {
                   </div>
                 </div>
 
-                {/* Status Badge */}
-                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-3.5 h-3.5 rounded-full ${
-                        isCheckedIn
-                          ? "bg-emerald-500 animate-pulse"
-                          : isCheckedOut
-                          ? "bg-indigo-500"
-                          : "bg-slate-400"
-                      }`}
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                        {isCheckedIn
-                          ? t("status_checked_in")
-                          : isCheckedOut
-                          ? t("status_checked_out")
-                          : t("status_not_checked_in")}
-                      </span>
-                      {todayLog?.check_in_at && (
-                        <span className="text-[11px] text-slate-400 font-mono block">
-                          حضور: {new Date(todayLog.check_in_at).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
-                          {todayLog.check_out_at && ` &bull; انصراف: ${new Date(todayLog.check_out_at).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}`}
+                {/* Live Shift Timer & Attendance Status Card */}
+                <div
+                  id="tour-home-status"
+                  className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-3.5 h-3.5 rounded-full ${
+                          isCheckedIn
+                            ? "bg-emerald-500 animate-pulse"
+                            : isCheckedOut
+                            ? "bg-indigo-500"
+                            : "bg-slate-400"
+                        }`}
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                          {isCheckedIn
+                            ? t("status_checked_in")
+                            : isCheckedOut
+                            ? t("status_checked_out")
+                            : t("status_not_checked_in")}
+                        </span>
+                        {todayLog?.check_in_at && (
+                          <span className="text-[11px] text-slate-400 font-mono block">
+                            حضور: {new Date(todayLog.check_in_at).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
+                            {todayLog.check_out_at && ` • انصراف: ${new Date(todayLog.check_out_at).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {todayLog?.grace_used && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200">
+                          {t("grace_applied_badge")}
                         </span>
                       )}
+                      {todayLog?.late_minutes > 0 ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200">
+                          {t("late_badge")} ({todayLog.late_minutes} د)
+                        </span>
+                      ) : todayLog?.check_in_at && !todayLog?.grace_used ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200">
+                          {language === "ar" ? "في الموعد" : "On Time"}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 
-                  {todayLog?.grace_used && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200">
-                      {t("grace_applied_badge")}
-                    </span>
-                  )}
-                  {todayLog?.late_minutes > 0 && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200">
-                      {t("late_badge")} ({todayLog.late_minutes} د)
-                    </span>
+                  {/* Live Elapsed Shift Timer when Checked In */}
+                  {isCheckedIn && (
+                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-semibold">
+                        <Timer className="w-4 h-4 text-emerald-500" />
+                        <span>{language === "ar" ? "الوقت المنقضي بالدوام:" : "Active Shift Timer:"}</span>
+                      </div>
+                      <span
+                        dir="ltr"
+                        className="font-mono text-base font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800"
+                      >
+                        {elapsedTimer}
+                      </span>
+                    </div>
                   )}
                 </div>
 
                 {/* Big Action Check-in / Check-out Button */}
-                <div className="pt-2">
+                <div id="tour-checkin-btn" className="pt-1">
                   {!isCheckedIn && !isCheckedOut && (
                     <button
                       onClick={() => startAttendanceFlow("checkin")}
@@ -1069,6 +1456,76 @@ export default function EmployeeApp() {
                     </div>
                   )}
                 </div>
+
+                {/* Annual Leave Balance Card */}
+                <div
+                  id="tour-leave-balance"
+                  className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
+                      <Palmtree className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400 block">
+                        {language === "ar" ? "رصيد الإجازات السنوية" : "Annual Leave Balance"}
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+                          {profile?.annual_leave_balance ?? 21}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                          {language === "ar" ? "يوم متبقي" : "days left"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReqType("leave");
+                      setNewReqModalOpen(true);
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 transition shrink-0"
+                  >
+                    {language === "ar" ? "طلب إجازة" : "Request Leave"}
+                  </button>
+                </div>
+
+                {/* Latest Announcement Preview Card */}
+                {announcements.length > 0 && (
+                  <div
+                    onClick={handleOpenFeed}
+                    className={`p-4 rounded-2xl border shadow-sm cursor-pointer transition hover:opacity-95 space-y-1.5 ${
+                      announcements[0].priority === "urgent"
+                        ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
+                        <Megaphone
+                          className={`w-3.5 h-3.5 ${
+                            announcements[0].priority === "urgent" ? "text-rose-600" : "text-indigo-500"
+                          }`}
+                        />
+                        <span>{announcements[0].title}</span>
+                      </span>
+                      {announcements[0].priority === "urgent" && (
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white">
+                          {language === "ar" ? "عاجل" : "Urgent"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      {announcements[0].body}
+                    </p>
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 block pt-0.5">
+                      {language === "ar" ? "عرض كل التعميمات والتحديثات ←" : "View all announcements & updates →"}
+                    </span>
+                  </div>
+                )}
 
                 {/* Shift Info Card */}
                 {shift && (
@@ -1893,6 +2350,7 @@ export default function EmployeeApp() {
           </button>
 
           <button
+            id="tour-nav-requests"
             onClick={() => setActiveTab("requests")}
             className={`flex flex-col items-center justify-center gap-1 transition relative ${
               activeTab === "requests"
@@ -1908,6 +2366,7 @@ export default function EmployeeApp() {
           </button>
 
           <button
+            id="tour-nav-profile"
             onClick={() => setActiveTab("profile")}
             className={`flex flex-col items-center justify-center gap-1 transition ${
               activeTab === "profile"
@@ -2008,6 +2467,161 @@ export default function EmployeeApp() {
           </div>
         </div>
       )}
+
+      {/* Company Announcements & Request Updates Feed Drawer */}
+      {feedDrawerOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 font-cairo">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-h-[85vh] flex flex-col overflow-hidden animate-fade-in-up">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200 dark:border-indigo-800">
+                  <Megaphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    {language === "ar" ? "التعميمات وتحديثات الطلبات" : "Announcements & Updates"}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    {language === "ar" ? "إعلانات الإدارة وحالة طلباتك الأخيرة" : "Company broadcasts & recent request updates"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeedDrawerOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              {/* Section 1: Company Announcements */}
+              <div className="space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {language === "ar" ? "تعميمات الشركة" : "Company Announcements"}
+                </div>
+                {announcements.length === 0 ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-center text-xs text-slate-400">
+                    {language === "ar" ? "لا توجد تعميمات حالياً." : "No announcements yet."}
+                  </div>
+                ) : (
+                  announcements.map((ann) => (
+                    <div
+                      key={ann.id}
+                      className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                        ann.priority === "urgent"
+                          ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900"
+                          : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                          {ann.title}
+                        </span>
+                        {ann.priority === "urgent" && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white shrink-0">
+                            {language === "ar" ? "عاجل" : "Urgent"}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {ann.body}
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-mono block">
+                        {new Date(ann.created_at).toLocaleDateString("ar-SA", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Section 2: Recent Request Status Updates */}
+              <div className="space-y-2.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {language === "ar" ? "تحديثات طلباتك الأخيرة" : "Recent Request Updates"}
+                </div>
+                {outgoingRequests.filter((r) => r.status !== "pending").length === 0 ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-center text-xs text-slate-400">
+                    {language === "ar" ? "لا توجد تحديثات جديدة على طلباتك." : "No recent request updates."}
+                  </div>
+                ) : (
+                  outgoingRequests
+                    .filter((r) => r.status !== "pending")
+                    .slice(0, 6)
+                    .map((req) => (
+                      <div
+                        key={req.id}
+                        onClick={() => {
+                          setFeedDrawerOpen(false);
+                          setActiveTab("requests");
+                        }}
+                        className="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300 transition"
+                      >
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+                            {req.type === "leave"
+                              ? language === "ar"
+                                ? "طلب إجازة"
+                                : "Leave Request"
+                              : req.type === "permission"
+                              ? language === "ar"
+                                ? "طلب استئذان"
+                                : "Permission Request"
+                              : req.type === "manual_edit"
+                              ? language === "ar"
+                                ? "تعديل حضور يدوي"
+                                : "Manual Edit"
+                              : req.type === "shift_change"
+                              ? language === "ar"
+                                ? "تغيير شفت"
+                                : "Shift Change"
+                              : language === "ar"
+                              ? "إعادة ربط جهاز"
+                              : "Device Reset"}
+                          </span>
+                          {req.review_note && (
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+                              {req.review_note}
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                            req.status === "approved"
+                              ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                              : "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                          }`}
+                        >
+                          {req.status === "approved"
+                            ? language === "ar"
+                              ? "مقبول"
+                              : "Approved"
+                            : language === "ar"
+                            ? "مرفوض"
+                            : "Rejected"}
+                        </span>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Employee Product Tour */}
+      <ProductTour
+        isOpen={tourOpen}
+        steps={employeeTourSteps}
+        onComplete={handleCompleteTour}
+        onSkip={handleCompleteTour}
+      />
     </div>
   );
 }
