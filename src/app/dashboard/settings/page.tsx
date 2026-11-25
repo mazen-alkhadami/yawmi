@@ -497,30 +497,12 @@ export default function CompanySettingsPage() {
                   {t("company_primary_color")}
                 </label>
                 <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    type="color"
-                    value={/^#[0-9a-fA-F]{6}$/.test(primaryColor) ? primaryColor : "#4F46E5"}
-                    onChange={(e) => {
-                      setPrimaryColor(e.target.value);
-                      applyDynamicThemeColor(e.target.value);
-                    }}
-                    className="w-10 h-10 rounded-xl border border-slate-300 dark:border-slate-600 shadow-sm shrink-0 cursor-pointer bg-transparent p-0.5"
-                    title={dir === "rtl" ? "اختر لوناً مخصصاً" : "Pick custom color"}
-                  />
-                  <input
-                    type="text"
-                    value={primaryColor}
-                    onChange={(e) => {
-                      setPrimaryColor(e.target.value);
-                      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
-                        applyDynamicThemeColor(e.target.value);
-                      }
-                    }}
-                    placeholder="#4F46E5"
-                    className="w-28 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold"
+                  <div
+                    className="w-9 h-9 rounded-xl border border-slate-300 dark:border-slate-600 shadow-sm shrink-0"
+                    style={{ backgroundColor: primaryColor }}
                   />
                   {/* 12 Distinct Color Presets */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {THEME_COLOR_PRESETS.map((preset) => (
                       <button
                         key={preset.hex}

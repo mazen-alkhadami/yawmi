@@ -2502,46 +2502,6 @@ export default function EmployeeApp() {
                           title={language === "ar" ? preset.nameAr : preset.nameEn}
                         />
                       ))}
-                      {/* Custom Color Picker */}
-                      <label
-                        className="w-7 h-7 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center cursor-pointer overflow-hidden hover:scale-105 transition"
-                        title={language === "ar" ? "لون مخصص" : "Custom Color"}
-                      >
-                        <input
-                          type="color"
-                          value={/^#[0-9a-fA-F]{6}$/.test(selectedThemeColor) ? selectedThemeColor : "#4F46E5"}
-                          onChange={async (e) => {
-                            const hex = e.target.value;
-                            setSelectedThemeColor(hex);
-                            applyDynamicThemeColor(hex);
-                            const uid = profile?.id || user?.id;
-                            if (uid) {
-                              if (typeof window !== "undefined") {
-                                localStorage.setItem(`yawmi_theme_color_${uid}`, hex);
-                              }
-                              setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
-                              const prevCache = getCachedData<any>("employee_app");
-                              if (prevCache?.profile) {
-                                setCachedData("employee_app", {
-                                  ...prevCache,
-                                  profile: { ...prevCache.profile, theme_color: hex },
-                                });
-                              }
-                              const { error } = await supabase
-                                .from("profiles")
-                                .update({ theme_color: hex })
-                                .eq("id", uid);
-                              setThemeSaveStatus(
-                                error
-                                  ? (language === "ar" ? "تم التطبيق محلياً" : "Applied locally")
-                                  : (language === "ar" ? "تم الحفظ ✓" : "Saved ✓")
-                              );
-                              setTimeout(() => setThemeSaveStatus(null), 2500);
-                            }
-                          }}
-                          className="w-9 h-9 -m-1 cursor-pointer border-0 bg-transparent"
-                        />
-                      </label>
                     </div>
                   </div>
                 </div>
