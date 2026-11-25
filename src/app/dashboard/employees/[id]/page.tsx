@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   Check,
   X,
+  FileText,
+  Printer,
 } from "lucide-react";
 
 interface EmployeeProfile {
@@ -113,6 +115,12 @@ export default function EmployeeHRPage() {
   const [transferLoading, setTransferLoading] = useState(false);
 
   const [digitalIdOpen, setDigitalIdOpen] = useState(false);
+  const [pdfReportOpen, setPdfReportOpen] = useState(false);
+  const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
+  const [reportMonth, setReportMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
 
   useEffect(() => {
     if (employeeId) {
@@ -150,8 +158,9 @@ export default function EmployeeHRPage() {
           .maybeSingle(),
         supabase
           .from("attendance_logs")
-          .select("id, late_minutes, overtime_minutes, grace_used")
-          .eq("employee_id", employeeId),
+          .select("id, shift_date, check_in_at, check_out_at, status, late_minutes, overtime_minutes, grace_used")
+          .eq("employee_id", employeeId)
+          .order("shift_date", { ascending: false }),
         supabase
           .from("employee_history")
           .select("*, changer:changed_by(id, full_name)")
@@ -176,11 +185,13 @@ export default function EmployeeHRPage() {
         gracePeriodsUsed: 0,
       };
       if (attRes.data) {
-        const totalLate = attRes.data.reduce((acc, log) => acc + (log.late_minutes || 0), 0);
-        const totalOvertime = attRes.data.reduce((acc, log) => acc + (log.overtime_minutes || 0), 0);
-        const totalGrace = attRes.data.filter((log) => log.grace_used).length;
+        setAttendanceLogs(attRes.data);
+        const presentOnly = attRes.data.filter((l: any) => l.status !== "absent");
+        const totalLate = presentOnly.reduce((acc, log) => acc + (log.late_minutes || 0), 0);
+        const totalOvertime = presentOnly.reduce((acc, log) => acc + (log.overtime_minutes || 0), 0);
+        const totalGrace = presentOnly.filter((log) => log.grace_used).length;
         nextSummary = {
-          totalPresent: attRes.data.length,
+          totalPresent: presentOnly.length,
           totalLateMinutes: totalLate,
           totalOvertimeMinutes: totalOvertime,
           gracePeriodsUsed: totalGrace,
@@ -380,6 +391,14 @@ export default function EmployeeHRPage() {
           >
             <CreditCard className="w-4 h-4" />
             <span>{language === "ar" ? "البطاقة الذكية" : "Smart Digital ID"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPdfReportOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-50 transition shadow-sm"
+          >
+            <FileText className="w-4 h-4 text-indigo-600" />
+            <span>{language === "ar" ? "تصدير تقرير الموظف (PDF)" : "Export Employee PDF"}</span>
           </button>
           <button
             onClick={() => setPromotionModalOpen(true)}
@@ -777,6 +796,206 @@ export default function EmployeeHRPage() {
           accentColor={company?.primary_color}
         />
       )}
+
+      {/* Individual Employee Official A4 PDF Report Modal (Company-Branded Only) */}
+      {employee && pdfReportOpen && (() => {
+        const brandHex = company?.primary_color || "#4F46E5";
+        const monthLogs = attendanceLogs.filter((l: any) =>
+          (l.shift_date || "").startsWith(reportMonth)
+        );
+        const presentDays = monthLogs.filter((l: any) => l.status !== "absent" && l.check_in_at).length;
+        const absentDays = monthLogs.filter((l: any) => l.status === "absent").length;
+        const graceDays = monthLogs.filter((l: any) => l.grace_used).length;
+        const lateMins = monthLogs.reduce((acc: number, l: any) => acc + (l.late_minutes || 0), 0);
+        const leaveBalance = (employee as any).annual_leave_balance ?? 21;
+        const empCode = `EMP-${employee.id.slice(0, 6).toUpperCase()}`;
+
+        return (
+          <div className="fixed inset-0 z-[100] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:static print:bg-white print:p-0">
+            <style>{`
+              @media print {
+                @page { size: A4; margin: 12mm; }
+                body * { visibility: hidden; }
+                #employee-pdf-report, #employee-pdf-report * { visibility: visible; }
+                #employee-pdf-report { position: absolute; inset: 0; width: 100%; background: #ffffff !important; color: #0f172a !important; box-shadow: none !important; border: none !important; }
+              }
+            `}</style>
+            <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:rounded-none print:border-0">
+              {/* Screen-Only Toolbar */}
+              <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-950/60 print:hidden">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                    {language === "ar" ? "تقرير الحضور الرسمي للموظف" : "Official Employee Attendance Report"}
+                  </span>
+                  <input
+                    type="month"
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-bold"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    style={{ backgroundColor: brandHex }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>{language === "ar" ? "طباعة / حفظ كـ PDF" : "Print / Save as PDF"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPdfReportOpen(false)}
+                    className="p-2 rounded-xl text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Printable A4 Sheet (Zero Platform Branding) */}
+              <div id="employee-pdf-report" className="p-6 sm:p-8 overflow-y-auto bg-white text-slate-900 space-y-6 font-cairo">
+                {/* Company-Only Header */}
+                <div
+                  className="flex items-center justify-between pb-4 border-b-2"
+                  style={{ borderColor: brandHex }}
+                >
+                  <div className="flex items-center gap-3">
+                    {company?.logo_url && (
+                      <img
+                        src={company.logo_url}
+                        alt={company?.name || ""}
+                        className="w-14 h-14 object-contain rounded-xl border border-slate-200 p-1 bg-white"
+                      />
+                    )}
+                    <div>
+                      <h2 className="text-lg font-black text-slate-900">{company?.name || ""}</h2>
+                      <p className="text-xs font-semibold text-slate-500">
+                        {language === "ar" ? "كشف الحضور والانصراف الفردي الرسمي" : "Official Individual Attendance Report"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-end text-xs">
+                    <span className="block text-slate-400">{language === "ar" ? "الفترة" : "Period"}</span>
+                    <span className="font-mono font-bold text-slate-800">{reportMonth}</span>
+                  </div>
+                </div>
+
+                {/* Employee Metadata */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                  <div>
+                    <span className="block text-slate-400 text-[11px]">{language === "ar" ? "اسم الموظف" : "Employee Name"}</span>
+                    <span className="font-bold text-slate-900">{employee.full_name}</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400 text-[11px]">{language === "ar" ? "المسمى الوظيفي" : "Job Title"}</span>
+                    <span className="font-bold text-slate-900">{employee.job_title || "--"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400 text-[11px]">{language === "ar" ? "الفرع" : "Branch"}</span>
+                    <span className="font-bold text-slate-900">{employee.branch?.name || "--"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400 text-[11px]">{language === "ar" ? "الرقم الوظيفي" : "Employee Code"}</span>
+                    <span className="font-mono font-bold text-slate-900">{empCode}</span>
+                  </div>
+                </div>
+
+                {/* Summary KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                    <span className="block text-[11px] text-slate-500">{language === "ar" ? "أيام الحضور" : "Present"}</span>
+                    <span className="text-lg font-black" style={{ color: brandHex }}>{presentDays}</span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                    <span className="block text-[11px] text-slate-500">{language === "ar" ? "فترة السماح" : "Grace"}</span>
+                    <span className="text-lg font-black text-amber-600">{graceDays}</span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                    <span className="block text-[11px] text-slate-500">{language === "ar" ? "دقائق التأخير" : "Late Mins"}</span>
+                    <span className="text-lg font-black text-orange-600">{lateMins}</span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                    <span className="block text-[11px] text-slate-500">{language === "ar" ? "أيام الغياب" : "Absent"}</span>
+                    <span className="text-lg font-black text-rose-600">{absentDays}</span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white col-span-2 sm:col-span-1">
+                    <span className="block text-[11px] text-slate-500">{language === "ar" ? "رصيد الإجازات" : "Leave Balance"}</span>
+                    <span className="text-lg font-black text-emerald-600">{leaveBalance}</span>
+                  </div>
+                </div>
+
+                {/* Full Daily Attendance Table */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <table className="w-full text-xs text-start">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5">{language === "ar" ? "التاريخ" : "Date"}</th>
+                        <th className="p-2.5">{language === "ar" ? "الحالة" : "Status"}</th>
+                        <th className="p-2.5">{language === "ar" ? "وقت الحضور" : "Check In"}</th>
+                        <th className="p-2.5">{language === "ar" ? "وقت الانصراف" : "Check Out"}</th>
+                        <th className="p-2.5 text-center">{language === "ar" ? "التأخير (د)" : "Late (m)"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {monthLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-6 text-center text-slate-400">
+                            {language === "ar" ? "لا توجد سجلات حضور لهذه الفترة." : "No attendance records for this period."}
+                          </td>
+                        </tr>
+                      ) : (
+                        monthLogs.map((log: any) => (
+                          <tr key={log.id}>
+                            <td className="p-2.5 font-mono font-semibold">{log.shift_date}</td>
+                            <td className="p-2.5 font-bold">
+                              {log.status === "absent"
+                                ? language === "ar" ? "غائب" : "Absent"
+                                : log.late_minutes > 0
+                                ? language === "ar" ? "متأخر" : "Late"
+                                : log.grace_used
+                                ? language === "ar" ? "سماح" : "Grace"
+                                : language === "ar" ? "حاضر" : "Present"}
+                            </td>
+                            <td className="p-2.5 font-mono">
+                              {log.check_in_at
+                                ? new Date(log.check_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                                : "--"}
+                            </td>
+                            <td className="p-2.5 font-mono">
+                              {log.check_out_at
+                                ? new Date(log.check_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                                : "--"}
+                            </td>
+                            <td className="p-2.5 text-center font-mono">{log.late_minutes || 0}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Official Signatures Footer */}
+                <div className="grid grid-cols-2 gap-8 pt-8 border-t border-slate-200 text-xs">
+                  <div className="space-y-8 text-center">
+                    <p className="font-bold text-slate-700">
+                      {language === "ar" ? "توقيع الموظف" : "Employee Signature"}
+                    </p>
+                    <div className="border-b border-dashed border-slate-400 w-4/5 mx-auto" />
+                  </div>
+                  <div className="space-y-8 text-center">
+                    <p className="font-bold text-slate-700">
+                      {language === "ar" ? "اعتماد وتوقيع المدير" : "Manager Approval & Signature"}
+                    </p>
+                    <div className="border-b border-dashed border-slate-400 w-4/5 mx-auto" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

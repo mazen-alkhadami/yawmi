@@ -9,6 +9,8 @@ import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AttachmentPreviewModal } from "@/components/AttachmentPreviewModal";
+import { WhatsAppSummaryModal, SummaryStatsBlock } from "@/components/WhatsAppSummaryModal";
 import {
   UserCheck,
   Building2,
@@ -33,6 +35,8 @@ import {
   Megaphone,
   Send,
   Trash2,
+  Paperclip,
+  MessageCircle,
 } from "lucide-react";
 
 interface Branch {
@@ -130,6 +134,8 @@ export default function BranchSupervisorPage() {
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [savingTheme, setSavingTheme] = useState(false);
   const [themeSaveStatus, setThemeSaveStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [previewAttachmentPath, setPreviewAttachmentPath] = useState<string | null>(null);
+  const [whatsappSummaryOpen, setWhatsappSummaryOpen] = useState(false);
   const [assignedBranches, setAssignedBranches] = useState<Branch[]>([]);
   const [permissions, setPermissions] = useState<SupervisorPermissions>({
     can_approve_employees: false,
@@ -713,10 +719,30 @@ export default function BranchSupervisorPage() {
                       <button
                         key={preset.hex}
                         type="button"
-                        onClick={() => {
-                          setSelectedThemeColor(preset.hex);
-                          applyDynamicThemeColor(preset.hex);
-                          setThemeSaveStatus(null);
+                        onClick={async () => {
+                          const hex = preset.hex;
+                          setSelectedThemeColor(hex);
+                          applyDynamicThemeColor(hex);
+                          if (!profile?.id) return;
+                          if (typeof window !== "undefined") {
+                            localStorage.setItem(`yawmi_theme_color_${profile.id}`, hex);
+                          }
+                          setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                          setSavingTheme(true);
+                          try {
+                            const { error } = await supabase
+                              .from("profiles")
+                              .update({ theme_color: hex })
+                              .eq("id", profile.id);
+                            setThemeSaveStatus(
+                              error
+                                ? { ok: false, text: error.message }
+                                : { ok: true, text: language === "ar" ? "تم الحفظ ✓" : "Saved ✓" }
+                            );
+                            setTimeout(() => setThemeSaveStatus(null), 2200);
+                          } finally {
+                            setSavingTheme(false);
+                          }
                         }}
                         className={`w-6 h-6 rounded-full border-2 transition ${
                           selectedThemeColor?.toLowerCase() === preset.hex.toLowerCase()
@@ -739,39 +765,6 @@ export default function BranchSupervisorPage() {
                       {themeSaveStatus.text}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    disabled={savingTheme}
-                    onClick={async () => {
-                      const hex = selectedThemeColor || "#4F46E5";
-                      if (!profile?.id) return;
-                      setSavingTheme(true);
-                      setThemeSaveStatus(null);
-                      try {
-                        applyDynamicThemeColor(hex);
-                        if (typeof window !== "undefined") {
-                          localStorage.setItem(`yawmi_theme_color_${profile.id}`, hex);
-                        }
-                        setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
-                        const { error } = await supabase
-                          .from("profiles")
-                          .update({ theme_color: hex })
-                          .eq("id", profile.id);
-                        setThemeSaveStatus(
-                          error
-                            ? { ok: false, text: error.message }
-                            : { ok: true, text: language === "ar" ? "تم حفظ اللون بنجاح ✓" : "Theme color saved ✓" }
-                        );
-                      } finally {
-                        setSavingTheme(false);
-                      }
-                    }}
-                    style={{ backgroundColor: selectedThemeColor }}
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-bold transition shadow-sm hover:opacity-95 disabled:opacity-60"
-                  >
-                    {savingTheme && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>{language === "ar" ? "حفظ" : "Save"}</span>
-                  </button>
                 </div>
               )}
             </div>
@@ -866,6 +859,14 @@ export default function BranchSupervisorPage() {
                     <ShieldCheck className="w-3 h-3" />
                     {t("supervisor_perm_close_month")}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setWhatsappSummaryOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>{language === "ar" ? "ملخص الواتساب" : "WhatsApp Summary"}</span>
+                  </button>
                 </div>
               </div>
 
@@ -1166,6 +1167,16 @@ export default function BranchSupervisorPage() {
                               <p className="text-slate-500 dark:text-slate-400">
                                 <strong>المبرر:</strong> {req.payload.reason}
                               </p>
+                            )}
+                            {req.attachment_url && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAttachmentPath(req.attachment_url)}
+                                className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold hover:bg-indigo-100 transition"
+                              >
+                                <Paperclip className="w-3 h-3" />
+                                <span>{language === "ar" ? "عرض المرفق" : "View Attachment"}</span>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1638,6 +1649,56 @@ export default function BranchSupervisorPage() {
       <footer className="text-center py-4 text-xs text-slate-400 border-t border-slate-200 dark:border-slate-800">
         يَومي | Yawmi Supervisor Portal
       </footer>
+
+      <AttachmentPreviewModal
+        isOpen={!!previewAttachmentPath}
+        onClose={() => setPreviewAttachmentPath(null)}
+        attachmentPath={previewAttachmentPath}
+        language={language}
+      />
+
+      {(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 6);
+        const weekStartStr = weekAgo.toISOString().split("T")[0];
+
+        const buildStats = (logs: AttendanceRecord[], dateLabel: string): SummaryStatsBlock => {
+          const absentRows = logs.filter((l: any) => l.status === "absent");
+          const presentRows = logs.filter((l: any) => l.status !== "absent");
+          const lateRows = presentRows.filter((l) => l.late_minutes > 0);
+          const graceRows = presentRows.filter((l) => l.grace_used && l.late_minutes === 0);
+          const onTimeRows = presentRows.filter((l) => !l.grace_used && l.late_minutes === 0);
+          const total = presentRows.length + absentRows.length;
+          const punctualityPct = total > 0 ? Math.round(((onTimeRows.length + graceRows.length) / total) * 100) : 100;
+          return {
+            dateLabel,
+            totalEmployees: total,
+            presentCount: presentRows.length,
+            onTimeCount: onTimeRows.length,
+            graceCount: graceRows.length,
+            lateCount: lateRows.length,
+            absentCount: absentRows.length,
+            punctualityPct,
+            lateNames: Array.from(new Set(lateRows.map((l) => l.employee?.full_name).filter(Boolean) as string[])),
+            absentNames: Array.from(new Set(absentRows.map((l) => l.employee?.full_name).filter(Boolean) as string[])),
+          };
+        };
+
+        const dailyLogs = attendanceLogs.filter((l) => l.shift_date === todayStr);
+        const weeklyLogs = attendanceLogs.filter((l) => l.shift_date >= weekStartStr && l.shift_date <= todayStr);
+
+        return (
+          <WhatsAppSummaryModal
+            isOpen={whatsappSummaryOpen}
+            onClose={() => setWhatsappSummaryOpen(false)}
+            language={language}
+            branchName={assignedBranches.map((b) => b.name).join("، ")}
+            dailyStats={buildStats(dailyLogs, todayStr)}
+            weeklyStats={buildStats(weeklyLogs, `${weekStartStr} → ${todayStr}`)}
+          />
+        );
+      })()}
     </div>
   );
 }

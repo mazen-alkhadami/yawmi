@@ -27,6 +27,7 @@ import {
 } from "@/lib/attendance/quick-unlock";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
+import { uploadRequestAttachment } from "@/lib/attachmentUtils";
 import {
   Home,
   History,
@@ -176,6 +177,7 @@ export default function EmployeeApp() {
   const [reqPermTimeFrom, setReqPermTimeFrom] = useState("10:00");
   const [reqPermTimeTo, setReqPermTimeTo] = useState("12:00");
   const [reqTargetShift, setReqTargetShift] = useState("");
+  const [reqAttachmentFile, setReqAttachmentFile] = useState<File | null>(null);
   const [submittingReq, setSubmittingReq] = useState(false);
   const [reqAlert, setReqAlert] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -1061,6 +1063,16 @@ export default function EmployeeApp() {
         payload.device_reason = reqReason.trim();
       }
 
+      let attachmentPath: string | null = null;
+      if (reqAttachmentFile) {
+        attachmentPath = await uploadRequestAttachment(
+          supabase,
+          profile.company_id,
+          user.id,
+          reqAttachmentFile
+        );
+      }
+
       const { error } = await supabase.from("requests").insert([
         {
           company_id: profile.company_id,
@@ -1070,6 +1082,7 @@ export default function EmployeeApp() {
           direction: "outgoing",
           status: "pending",
           payload,
+          attachment_url: attachmentPath,
         },
       ]);
 
@@ -1078,6 +1091,7 @@ export default function EmployeeApp() {
       setReqAlert({ type: "success", text: "تم إرسال طلبك بنجاح وهو الآن بانتظار مراجعة الإدارة." });
       setNewReqModalOpen(false);
       setReqReason("");
+      setReqAttachmentFile(null);
       await fetchRequests(user.id);
       setUnreadFeedCount((prev) => prev + 1);
     } catch (err: any) {
@@ -2454,10 +2468,38 @@ export default function EmployeeApp() {
                         <button
                           key={preset.hex}
                           type="button"
-                          onClick={() => {
-                            setSelectedThemeColor(preset.hex);
-                            applyDynamicThemeColor(preset.hex);
-                            setThemeSaveStatus(null);
+                          onClick={async () => {
+                            const hex = preset.hex;
+                            setSelectedThemeColor(hex);
+                            applyDynamicThemeColor(hex);
+                            const uid = profile?.id || user?.id;
+                            if (!uid) return;
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem(`yawmi_theme_color_${uid}`, hex);
+                            }
+                            setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                            const prevCache = getCachedData<any>("employee_app");
+                            if (prevCache?.profile) {
+                              setCachedData("employee_app", {
+                                ...prevCache,
+                                profile: { ...prevCache.profile, theme_color: hex },
+                              });
+                            }
+                            setSavingTheme(true);
+                            try {
+                              const { error } = await supabase
+                                .from("profiles")
+                                .update({ theme_color: hex })
+                                .eq("id", uid);
+                              setThemeSaveStatus(
+                                error
+                                  ? { ok: false, text: error.message }
+                                  : { ok: true, text: language === "ar" ? "تم الحفظ ✓" : "Saved ✓" }
+                              );
+                              setTimeout(() => setThemeSaveStatus(null), 2200);
+                            } finally {
+                              setSavingTheme(false);
+                            }
                           }}
                           className={`w-7 h-7 rounded-full border-2 transition ${
                             selectedThemeColor?.toLowerCase() === preset.hex.toLowerCase()
@@ -2470,56 +2512,8 @@ export default function EmployeeApp() {
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <button
-                        type="button"
-                        disabled={savingTheme}
-                        onClick={async () => {
-                          const hex = selectedThemeColor || "#4F46E5";
-                          const uid = profile?.id || user?.id;
-                          if (!uid) return;
-                          setSavingTheme(true);
-                          setThemeSaveStatus(null);
-                          try {
-                            applyDynamicThemeColor(hex);
-                            if (typeof window !== "undefined") {
-                              localStorage.setItem(`yawmi_theme_color_${uid}`, hex);
-                            }
-                            setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
-                            const prevCache = getCachedData<any>("employee_app");
-                            if (prevCache?.profile) {
-                              setCachedData("employee_app", {
-                                ...prevCache,
-                                profile: { ...prevCache.profile, theme_color: hex },
-                              });
-                            }
-                            const { error } = await supabase
-                              .from("profiles")
-                              .update({ theme_color: hex })
-                              .eq("id", uid);
-                            if (error) {
-                              setThemeSaveStatus({
-                                ok: false,
-                                text: error.message || (language === "ar" ? "تعذر الحفظ في قاعدة البيانات" : "DB save failed"),
-                              });
-                            } else {
-                              setThemeSaveStatus({
-                                ok: true,
-                                text: language === "ar" ? "تم حفظ اللون بنجاح ✓" : "Theme color saved ✓",
-                              });
-                            }
-                          } finally {
-                            setSavingTheme(false);
-                          }
-                        }}
-                        style={{ backgroundColor: selectedThemeColor }}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold transition shadow-sm hover:opacity-95 disabled:opacity-60"
-                      >
-                        {savingTheme && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        <span>{language === "ar" ? "حفظ" : "Save"}</span>
-                      </button>
-
-                      {companyInfo?.primary_color && (
+                    {companyInfo?.primary_color && (
+                      <div className="flex items-center justify-end pt-1">
                         <button
                           type="button"
                           disabled={savingTheme}
@@ -2549,8 +2543,9 @@ export default function EmployeeApp() {
                               setThemeSaveStatus(
                                 error
                                   ? { ok: false, text: error.message }
-                                  : { ok: true, text: language === "ar" ? "تمت استعادة لون الشركة ✓" : "Reset to company color ✓" }
+                                  : { ok: true, text: language === "ar" ? "تمت الاستعادة ✓" : "Reset ✓" }
                               );
+                              setTimeout(() => setThemeSaveStatus(null), 2200);
                             } finally {
                               setSavingTheme(false);
                             }
@@ -2560,8 +2555,8 @@ export default function EmployeeApp() {
                         >
                           {language === "ar" ? "استعادة لون الشركة" : "Reset to Company"}
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2743,6 +2738,52 @@ export default function EmployeeApp() {
                   placeholder="اكتب التوضيح أو المبرر للإدارة..."
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+
+              {/* Optional Attachment (Auto-compressed images < 500KB or PDF up to 5MB) */}
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  {language === "ar"
+                    ? "إرفاق مستند أو عذر طبي (اختياري)"
+                    : "Attach Document / Medical Excuse (Optional)"}
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer transition">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>
+                      {reqAttachmentFile
+                        ? reqAttachmentFile.name
+                        : language === "ar"
+                        ? "اختر ملفاً (JPG, PNG, WebP, PDF)"
+                        : "Choose file (JPG, PNG, WebP, PDF)"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        if (file && file.size > 5 * 1024 * 1024) {
+                          setReqAlert({
+                            type: "error",
+                            text: language === "ar" ? "الحد الأقصى لحجم الملف 5 ميجابايت." : "Max file size is 5MB.",
+                          });
+                          return;
+                        }
+                        setReqAttachmentFile(file);
+                      }}
+                    />
+                  </label>
+                  {reqAttachmentFile && (
+                    <button
+                      type="button"
+                      onClick={() => setReqAttachmentFile(null)}
+                      className="text-[11px] font-bold text-rose-600 hover:underline"
+                    >
+                      {language === "ar" ? "إزالة" : "Remove"}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Actions */}

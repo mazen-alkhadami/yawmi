@@ -6,6 +6,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
 import { logAuditAction } from "@/lib/auditLog";
+import { AttachmentPreviewModal } from "@/components/AttachmentPreviewModal";
 import {
   FileCheck2,
   Clock,
@@ -25,6 +26,7 @@ import {
   DollarSign,
   Building2,
   ChevronDown,
+  Paperclip,
 } from "lucide-react";
 
 interface RequestRecord {
@@ -71,11 +73,12 @@ interface OvertimeLog {
 
 export default function RequestsCenterPage() {
   const { company, profile: managerProfile } = useContext(CompanyDashboardContext);
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const supabase = createClient();
 
   const [activeMainTab, setActiveMainTab] = useState<"requests" | "overtime" | "salary">("requests");
   const [loading, setLoading] = useState(true);
+  const [previewAttachmentPath, setPreviewAttachmentPath] = useState<string | null>(null);
 
   // Tab 1: Requests
   const [requests, setRequests] = useState<RequestRecord[]>([]);
@@ -678,6 +681,18 @@ export default function RequestsCenterPage() {
                         <strong>{t("manager_review_note")}:</strong> {req.review_note}
                       </div>
                     )}
+
+                    {/* Attachment Preview Trigger */}
+                    {req.attachment_url && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewAttachmentPath(req.attachment_url)}
+                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold hover:bg-indigo-100 transition"
+                      >
+                        <Paperclip className="w-3 h-3" />
+                        <span>{language === "ar" ? "عرض المرفق" : "View Attachment"}</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Actions Bar */}
@@ -1029,6 +1044,13 @@ export default function RequestsCenterPage() {
           </div>
         </div>
       )}
+
+      <AttachmentPreviewModal
+        isOpen={!!previewAttachmentPath}
+        onClose={() => setPreviewAttachmentPath(null)}
+        attachmentPath={previewAttachmentPath}
+        language={language}
+      />
     </div>
   );
 }

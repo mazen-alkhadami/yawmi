@@ -5,6 +5,7 @@ import { CompanyDashboardContext } from "../layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
+import { WhatsAppSummaryModal, SummaryStatsBlock } from "@/components/WhatsAppSummaryModal";
 import {
   FileBarChart2,
   Calendar,
@@ -23,6 +24,9 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   RotateCcw,
+  MessageCircle,
+  RefreshCw,
+  BarChart3,
 } from "lucide-react";
 
 interface EmployeeReportRow {
@@ -31,6 +35,7 @@ interface EmployeeReportRow {
   jobTitle: string;
   branchName: string;
   presentDays: number;
+  absentDays: number;
   totalLateMinutes: number;
   graceUses: number;
   approvedOvertimeMinutes: number;
@@ -48,7 +53,7 @@ interface MonthlyReportStatus {
 
 export default function MonthlyReportsPage() {
   const { company, profile } = useContext(CompanyDashboardContext);
-  const { t, dir } = useLanguage();
+  const { t, dir, language } = useLanguage();
   const supabase = createClient();
 
   const currentDate = new Date();
@@ -58,8 +63,13 @@ export default function MonthlyReportsPage() {
 
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
   const [reportRows, setReportRows] = useState<EmployeeReportRow[]>([]);
+  const [rawLogs, setRawLogs] = useState<any[]>([]);
+  const [employeesDataList, setEmployeesDataList] = useState<any[]>([]);
   const [monthStatus, setMonthStatus] = useState<MonthlyReportStatus>({ status: "open" });
   const [loading, setLoading] = useState(true);
+  const [syncingAbsences, setSyncingAbsences] = useState(false);
+  const [absenceSyncMsg, setAbsenceSyncMsg] = useState<string | null>(null);
+  const [whatsappSummaryOpen, setWhatsappSummaryOpen] = useState(false);
 
   // Close Month Modal
   const [closeModalOpen, setCloseModalOpen] = useState(false);
@@ -146,13 +156,26 @@ export default function MonthlyReportsPage() {
 
       let attQuery = supabase
         .from("attendance_logs")
-        .select("id, employee_id, check_in_at, late_minutes, grace_used, overtime_minutes, overtime_approved, is_manual_edit")
+        .select("id, employee_id, branch_id, shift_date, status, check_in_at, late_minutes, grace_used, overtime_minutes, overtime_approved, is_manual_edit")
         .eq("company_id", company!.id)
         .gte("shift_date", startDayStr)
         .lt("shift_date", endDayStr);
 
       if (selectedBranchId !== "all") {
         attQuery = attQuery.eq("branch_id", selectedBranchId);
+      }
+
+      // Safely auto-sync yesterday's absences when viewing past days
+      const nowLocal = new Date();
+      const yesterday = new Date(nowLocal);
+      yesterday.setDate(nowLocal.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      const autoSyncKey = `yawmi_abs_synced_${company!.id}_${yesterdayStr}`;
+      if (typeof window !== "undefined" && !sessionStorage.getItem(autoSyncKey)) {
+        sessionStorage.setItem(autoSyncKey, "1");
+        supabase
+          .rpc("mark_daily_absences", { p_company_id: company!.id, p_target_date: yesterdayStr })
+          .then(() => {});
       }
 
       // Run all 3 queries in parallel
@@ -176,18 +199,22 @@ export default function MonthlyReportsPage() {
       setMonthStatus(nextMonthStatus);
 
       const employeesData = empRes.data;
+      setEmployeesDataList(employeesData || []);
       if (!employeesData || employeesData.length === 0) {
         setReportRows([]);
+        setRawLogs([]);
         setCachedData(cacheKey, { monthStatus: nextMonthStatus, reportRows: [] });
         return;
       }
 
       const logs = attRes.data || [];
+      setRawLogs(logs);
 
       // 4. Aggregate logs per employee
       const aggregated: EmployeeReportRow[] = employeesData.map((emp: any) => {
         const empLogs = logs.filter((l) => l.employee_id === emp.id);
-        const presentDays = empLogs.filter((l) => l.check_in_at).length;
+        const absentDays = empLogs.filter((l: any) => l.status === "absent").length;
+        const presentDays = empLogs.filter((l: any) => l.status !== "absent" && l.check_in_at).length;
         const totalLate = empLogs.reduce((sum, l) => sum + (l.late_minutes || 0), 0);
         const graceUses = empLogs.filter((l) => l.grace_used).length;
         const approvedOt = empLogs
@@ -201,6 +228,7 @@ export default function MonthlyReportsPage() {
           jobTitle: emp.job_title || "--",
           branchName: emp.branch?.name || "--",
           presentDays,
+          absentDays,
           totalLateMinutes: totalLate,
           graceUses,
           approvedOvertimeMinutes: approvedOt,
@@ -354,6 +382,48 @@ export default function MonthlyReportsPage() {
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            type="button"
+            disabled={syncingAbsences}
+            onClick={async () => {
+              if (!company?.id) return;
+              setSyncingAbsences(true);
+              setAbsenceSyncMsg(null);
+              try {
+                const todayStr = new Date().toISOString().split("T")[0];
+                const { data, error } = await supabase.rpc("mark_daily_absences", {
+                  p_company_id: company.id,
+                  p_target_date: todayStr,
+                });
+                if (error) throw error;
+                const count = Number(data || 0);
+                setAbsenceSyncMsg(
+                  language === "ar"
+                    ? `تم تحديث الغياب التلقائي: ${count} سجل غياب جديد.`
+                    : `Absences synced: ${count} new absent record(s).`
+                );
+                await loadReportData();
+              } catch (err: any) {
+                setAbsenceSyncMsg(err?.message || "Sync failed");
+              } finally {
+                setSyncingAbsences(false);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 transition text-amber-800 dark:text-amber-300 disabled:opacity-50 shadow-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncingAbsences ? "animate-spin" : ""}`} />
+            <span>{language === "ar" ? "تحديث الغياب التلقائي" : "Sync Absences"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setWhatsappSummaryOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span>{language === "ar" ? "ملخص الواتساب" : "WhatsApp Summary"}</span>
+          </button>
+
+          <button
             onClick={handleExportCSV}
             disabled={reportRows.length === 0}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 transition text-slate-700 dark:text-slate-200 disabled:opacity-50 shadow-sm"
@@ -490,6 +560,130 @@ export default function MonthlyReportsPage() {
           </span>
         </div>
       </div>
+
+      {/* Absence Sync Feedback */}
+      {absenceSyncMsg && (
+        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-bold text-amber-800 dark:text-amber-200 flex items-center justify-between print:hidden">
+          <span>{absenceSyncMsg}</span>
+          <button type="button" onClick={() => setAbsenceSyncMsg(null)} className="text-amber-600 hover:opacity-75">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Attendance Commitment Charts (Pure SVG / Tailwind) */}
+      {!loading && rawLogs.length > 0 && (() => {
+        const absentCount = rawLogs.filter((l) => l.status === "absent").length;
+        const presentLogs = rawLogs.filter((l) => l.status !== "absent");
+        const lateCount = presentLogs.filter((l) => (l.late_minutes || 0) > 0).length;
+        const graceCount = presentLogs.filter((l) => l.grace_used && (l.late_minutes || 0) === 0).length;
+        const onTimeCount = presentLogs.filter((l) => !l.grace_used && (l.late_minutes || 0) === 0).length;
+        const total = Math.max(1, onTimeCount + graceCount + lateCount + absentCount);
+
+        const radius = 38;
+        const circumference = 2 * Math.PI * radius;
+        const segments = [
+          { label: language === "ar" ? "في الموعد" : "On Time", count: onTimeCount, color: "#10B981" },
+          { label: language === "ar" ? "فترة السماح" : "Grace", count: graceCount, color: "#F59E0B" },
+          { label: language === "ar" ? "متأخر" : "Late", count: lateCount, color: "#F97316" },
+          { label: language === "ar" ? "غائب" : "Absent", count: absentCount, color: "#EF4444" },
+        ];
+
+        let cumulativeOffset = 0;
+        const branchStats = branches.map((br) => {
+          const bLogs = rawLogs.filter((l) => l.branch_id === br.id);
+          const bTotal = bLogs.length;
+          const bOnTime = bLogs.filter((l) => l.status !== "absent" && (l.late_minutes || 0) === 0).length;
+          const pct = bTotal > 0 ? Math.round((bOnTime / bTotal) * 100) : 0;
+          return { id: br.id, name: br.name, pct, total: bTotal };
+        });
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 print:hidden">
+            {/* Donut Breakdown */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row items-center gap-6">
+              <div className="relative w-28 h-28 shrink-0">
+                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="currentColor" strokeWidth="12" className="text-slate-100 dark:text-slate-700" />
+                  {segments.map((seg) => {
+                    const dash = (seg.count / total) * circumference;
+                    const offset = cumulativeOffset;
+                    cumulativeOffset += dash;
+                    if (seg.count === 0) return null;
+                    return (
+                      <circle
+                        key={seg.label}
+                        cx="50"
+                        cy="50"
+                        r={radius}
+                        fill="none"
+                        stroke={seg.color}
+                        strokeWidth="12"
+                        strokeDasharray={`${dash} ${circumference}`}
+                        strokeDashoffset={-offset}
+                      />
+                    );
+                  })}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <span className="text-lg font-black text-slate-900 dark:text-white">
+                    {Math.round(((onTimeCount + graceCount) / total) * 100)}%
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    {language === "ar" ? "الالتزام" : "On-Time"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex-1 w-full space-y-2">
+                <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  <BarChart3 className="w-4 h-4 text-indigo-600" />
+                  <span>{language === "ar" ? "توزيع حالات الحضور" : "Attendance Breakdown"}</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {segments.map((seg) => (
+                    <div key={seg.label} className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-semibold text-slate-600 dark:text-slate-300">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
+                        {seg.label}
+                      </span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">{seg.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Branch Punctuality Comparison */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+              <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-indigo-600" />
+                <span>{language === "ar" ? "مقارنة التزام الفروع" : "Branch Punctuality Comparison"}</span>
+              </h3>
+              {branchStats.length === 0 ? (
+                <p className="text-xs text-slate-400">{language === "ar" ? "لا توجد فروع" : "No branches"}</p>
+              ) : (
+                <div className="space-y-2.5 max-h-36 overflow-y-auto pe-1">
+                  {branchStats.map((br) => (
+                    <div key={br.id} className="space-y-1 text-xs">
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="text-slate-700 dark:text-slate-200 truncate">{br.name}</span>
+                        <span className="font-mono text-indigo-600 dark:text-indigo-400">{br.pct}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-indigo-600 transition-all"
+                          style={{ width: `${br.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Employee Attendance Summary Table */}
       <div className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
@@ -655,6 +849,67 @@ export default function MonthlyReportsPage() {
           </div>
         </div>
       )}
+
+      {(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 6);
+        const weekStartStr = weekAgo.toISOString().split("T")[0];
+        const empMap = new Map(employeesDataList.map((e: any) => [e.id, e.full_name]));
+        const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
+
+        const buildStats = (logs: any[], dateLabel: string): SummaryStatsBlock => {
+          const absentRows = logs.filter((l) => l.status === "absent");
+          const presentRows = logs.filter((l) => l.status !== "absent");
+          const lateRows = presentRows.filter((l) => (l.late_minutes || 0) > 0);
+          const graceRows = presentRows.filter((l) => l.grace_used && (l.late_minutes || 0) === 0);
+          const onTimeRows = presentRows.filter((l) => !l.grace_used && (l.late_minutes || 0) === 0);
+          const total = presentRows.length + absentRows.length;
+          const punctualityPct = total > 0 ? Math.round(((onTimeRows.length + graceRows.length) / total) * 100) : 100;
+
+          let topBranchName: string | undefined;
+          let bestPct = -1;
+          for (const br of branches) {
+            const bLogs = logs.filter((l) => l.branch_id === br.id);
+            if (bLogs.length === 0) continue;
+            const bOnTime = bLogs.filter((l) => l.status !== "absent" && (l.late_minutes || 0) === 0).length;
+            const bPct = Math.round((bOnTime / bLogs.length) * 100);
+            if (bPct > bestPct) {
+              bestPct = bPct;
+              topBranchName = `${br.name} (${bPct}%)`;
+            }
+          }
+
+          return {
+            dateLabel,
+            totalEmployees: employeesDataList.length || total,
+            presentCount: presentRows.length,
+            onTimeCount: onTimeRows.length,
+            graceCount: graceRows.length,
+            lateCount: lateRows.length,
+            absentCount: absentRows.length,
+            punctualityPct,
+            topBranchName,
+            lateNames: Array.from(new Set(lateRows.map((l) => empMap.get(l.employee_id)).filter(Boolean) as string[])),
+            absentNames: Array.from(new Set(absentRows.map((l) => empMap.get(l.employee_id)).filter(Boolean) as string[])),
+          };
+        };
+
+        const dailyLogs = rawLogs.filter((l) => l.shift_date === todayStr);
+        const weeklyLogs = rawLogs.filter((l) => l.shift_date >= weekStartStr && l.shift_date <= todayStr);
+
+        return (
+          <WhatsAppSummaryModal
+            isOpen={whatsappSummaryOpen}
+            onClose={() => setWhatsappSummaryOpen(false)}
+            language={language}
+            companyName={company?.name}
+            branchName={selectedBranchId !== "all" ? branchNameById.get(selectedBranchId) : undefined}
+            dailyStats={buildStats(dailyLogs, todayStr)}
+            weeklyStats={buildStats(weeklyLogs, `${weekStartStr} → ${todayStr}`)}
+          />
+        );
+      })()}
     </div>
   );
 }
