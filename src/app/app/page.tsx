@@ -1628,7 +1628,11 @@ export default function EmployeeApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-cairo select-none pb-20">
+    <div
+      data-brand-themed="true"
+      style={{ "--brand-primary": selectedThemeColor } as React.CSSProperties}
+      className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-cairo select-none pb-20"
+    >
       {/* Top Mobile Bar */}
       <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between shadow-sm">
         <YawmiLogo size="sm" showText={true} />
@@ -1760,7 +1764,13 @@ export default function EmployeeApp() {
                 )}
 
                 {/* User Greeting Card */}
-                <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-700 via-indigo-600 to-indigo-900 text-white shadow-lg shadow-indigo-600/15">
+                <div
+                  className="p-4 rounded-2xl text-white shadow-lg relative overflow-hidden"
+                  style={{
+                    backgroundImage: `linear-gradient(135deg, ${selectedThemeColor}, color-mix(in srgb, ${selectedThemeColor} 72%, black))`,
+                    boxShadow: `0 10px 25px -5px ${selectedThemeColor}35`,
+                  }}
+                >
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-xs text-indigo-200 font-medium block">
@@ -1861,7 +1871,11 @@ export default function EmployeeApp() {
                   {!isCheckedIn && !isCheckedOut && (
                     <button
                       onClick={() => startAttendanceFlow("checkin")}
-                      className="w-full py-4 px-6 rounded-2xl font-black text-base bg-checkin hover:bg-checkin-hover text-white shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2 transition active:scale-[0.98]"
+                      style={{
+                        backgroundColor: selectedThemeColor,
+                        boxShadow: `0 10px 25px -5px ${selectedThemeColor}40`,
+                      }}
+                      className="w-full py-4 px-6 rounded-2xl font-black text-base text-white shadow-xl flex items-center justify-center gap-2 transition active:scale-[0.98] hover:opacity-95"
                     >
                       <QrCode className="w-5 h-5" />
                       <span>{t("check_in_btn")}</span>
@@ -1892,7 +1906,14 @@ export default function EmployeeApp() {
                   className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between gap-3"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
+                    <div
+                      className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0"
+                      style={{
+                        backgroundColor: `${selectedThemeColor}15`,
+                        borderColor: `${selectedThemeColor}40`,
+                        color: selectedThemeColor,
+                      }}
+                    >
                       <Palmtree className="w-5 h-5" />
                     </div>
                     <div>
@@ -2491,10 +2512,11 @@ export default function EmployeeApp() {
                             setSavingTheme(false);
                           }
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-60"
+                        style={{ backgroundColor: selectedThemeColor }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold transition shadow-sm hover:opacity-95 disabled:opacity-60"
                       >
                         {savingTheme && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        <span>{language === "ar" ? "حفظ اللون" : "Save Color"}</span>
+                        <span>{language === "ar" ? "حفظ" : "Save"}</span>
                       </button>
 
                       {companyInfo?.primary_color && (
@@ -2533,7 +2555,8 @@ export default function EmployeeApp() {
                               setSavingTheme(false);
                             }
                           }}
-                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-60"
+                          style={{ color: selectedThemeColor }}
+                          className="text-[11px] font-bold hover:underline disabled:opacity-60"
                         >
                           {language === "ar" ? "استعادة لون الشركة" : "Reset to Company"}
                         </button>
@@ -2920,9 +2943,10 @@ export default function EmployeeApp() {
         <div className="max-w-md mx-auto grid grid-cols-4 h-16">
           <button
             onClick={() => setActiveTab("home")}
+            style={activeTab === "home" ? { color: selectedThemeColor } : undefined}
             className={`flex flex-col items-center justify-center gap-1 transition ${
               activeTab === "home"
-                ? "text-indigo-600 dark:text-indigo-400 font-bold"
+                ? "font-bold"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
@@ -2932,9 +2956,10 @@ export default function EmployeeApp() {
 
           <button
             onClick={() => setActiveTab("history")}
+            style={activeTab === "history" ? { color: selectedThemeColor } : undefined}
             className={`flex flex-col items-center justify-center gap-1 transition ${
               activeTab === "history"
-                ? "text-indigo-600 dark:text-indigo-400 font-bold"
+                ? "font-bold"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
@@ -2945,9 +2970,10 @@ export default function EmployeeApp() {
           <button
             id="tour-nav-requests"
             onClick={() => setActiveTab("requests")}
+            style={activeTab === "requests" ? { color: selectedThemeColor } : undefined}
             className={`flex flex-col items-center justify-center gap-1 transition relative ${
               activeTab === "requests"
-                ? "text-indigo-600 dark:text-indigo-400 font-bold"
+                ? "font-bold"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
@@ -2961,9 +2987,10 @@ export default function EmployeeApp() {
           <button
             id="tour-nav-profile"
             onClick={() => setActiveTab("profile")}
+            style={activeTab === "profile" ? { color: selectedThemeColor } : undefined}
             className={`flex flex-col items-center justify-center gap-1 transition ${
               activeTab === "profile"
-                ? "text-indigo-600 dark:text-indigo-400 font-bold"
+                ? "font-bold"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >

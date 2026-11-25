@@ -631,7 +631,11 @@ export default function BranchSupervisorPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white flex flex-col font-cairo">
+    <div
+      data-brand-themed="true"
+      style={{ "--brand-primary": selectedThemeColor } as React.CSSProperties}
+      className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white flex flex-col font-cairo"
+    >
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3.5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -639,7 +643,14 @@ export default function BranchSupervisorPage() {
             <YawmiLogo size="md" />
             <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
             <div className="hidden sm:flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 flex items-center gap-1.5">
+              <span
+                className="px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5"
+                style={{
+                  backgroundColor: `${selectedThemeColor}15`,
+                  borderColor: `${selectedThemeColor}40`,
+                  color: selectedThemeColor,
+                }}
+              >
                 <UserCheck className="w-3.5 h-3.5" />
                 {t("supervisor_portal_title")}
               </span>
@@ -755,10 +766,11 @@ export default function BranchSupervisorPage() {
                         setSavingTheme(false);
                       }
                     }}
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-60"
+                    style={{ backgroundColor: selectedThemeColor }}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-bold transition shadow-sm hover:opacity-95 disabled:opacity-60"
                   >
                     {savingTheme && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>{language === "ar" ? "حفظ اللون" : "Save Color"}</span>
+                    <span>{language === "ar" ? "حفظ" : "Save"}</span>
                   </button>
                 </div>
               )}

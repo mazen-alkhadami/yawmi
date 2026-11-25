@@ -311,15 +311,6 @@ export default function CompanySettingsPage() {
     }
   };
 
-  const colorPresets = [
-    { name: "Deep Indigo", hex: "#4F46E5" },
-    { name: "Royal Blue", hex: "#2563EB" },
-    { name: "Teal Emerald", hex: "#0D9488" },
-    { name: "Forest Green", hex: "#16A34A" },
-    { name: "Purple", hex: "#9333EA" },
-    { name: "Midnight Navy", hex: "#1E293B" },
-  ];
-
   return (
     <div className="space-y-6 font-cairo">
       {/* Header */}
