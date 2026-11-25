@@ -128,6 +128,8 @@ export default function BranchSupervisorPage() {
   const [companyPrimaryColor, setCompanyPrimaryColor] = useState<string>("#4F46E5");
   const [selectedThemeColor, setSelectedThemeColor] = useState<string>("#4F46E5");
   const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [themeSaveStatus, setThemeSaveStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [assignedBranches, setAssignedBranches] = useState<Branch[]>([]);
   const [permissions, setPermissions] = useState<SupervisorPermissions>({
     can_approve_employees: false,
@@ -658,25 +660,39 @@ export default function BranchSupervisorPage() {
                 <Palette className="w-4 h-4" />
               </button>
               {themePickerOpen && (
-                <div className="absolute end-0 mt-2 w-56 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 space-y-2.5">
+                <div className="absolute end-0 mt-2 w-64 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 space-y-3">
                   <div className="flex items-center justify-between text-[11px] font-bold">
                     <span className="text-slate-700 dark:text-slate-200">
                       {language === "ar" ? "لون الواجهة المفضل" : "Accent Color"}
                     </span>
                     <button
                       type="button"
+                      disabled={savingTheme}
                       onClick={async () => {
                         setSelectedThemeColor(companyPrimaryColor);
                         applyDynamicThemeColor(companyPrimaryColor);
-                        setThemePickerOpen(false);
                         if (profile?.id) {
-                          if (typeof window !== "undefined") {
-                            localStorage.removeItem(`yawmi_theme_color_${profile.id}`);
+                          setSavingTheme(true);
+                          try {
+                            if (typeof window !== "undefined") {
+                              localStorage.removeItem(`yawmi_theme_color_${profile.id}`);
+                            }
+                            setProfile((prev: any) => (prev ? { ...prev, theme_color: null } : prev));
+                            const { error } = await supabase
+                              .from("profiles")
+                              .update({ theme_color: null })
+                              .eq("id", profile.id);
+                            setThemeSaveStatus(
+                              error
+                                ? { ok: false, text: error.message }
+                                : { ok: true, text: language === "ar" ? "تمت الاستعادة ✓" : "Reset ✓" }
+                            );
+                          } finally {
+                            setSavingTheme(false);
                           }
-                          await supabase.from("profiles").update({ theme_color: null }).eq("id", profile.id);
                         }
                       }}
-                      className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-60"
                     >
                       {language === "ar" ? "لون الشركة" : "Company"}
                     </button>
@@ -686,28 +702,64 @@ export default function BranchSupervisorPage() {
                       <button
                         key={preset.hex}
                         type="button"
-                        onClick={async () => {
+                        onClick={() => {
                           setSelectedThemeColor(preset.hex);
                           applyDynamicThemeColor(preset.hex);
-                          setThemePickerOpen(false);
-                          if (profile?.id) {
-                            if (typeof window !== "undefined") {
-                              localStorage.setItem(`yawmi_theme_color_${profile.id}`, preset.hex);
-                            }
-                            setProfile((prev: any) => (prev ? { ...prev, theme_color: preset.hex } : prev));
-                            await supabase.from("profiles").update({ theme_color: preset.hex }).eq("id", profile.id);
-                          }
+                          setThemeSaveStatus(null);
                         }}
                         className={`w-6 h-6 rounded-full border-2 transition ${
                           selectedThemeColor?.toLowerCase() === preset.hex.toLowerCase()
                             ? "border-slate-900 dark:border-white scale-110"
-                            : "border-transparent"
+                            : "border-transparent hover:scale-105"
                         }`}
                         style={{ backgroundColor: preset.hex }}
                         title={language === "ar" ? preset.nameAr : preset.nameEn}
                       />
                     ))}
                   </div>
+                  {themeSaveStatus && (
+                    <div
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
+                        themeSaveStatus.ok
+                          ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
+                          : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300"
+                      }`}
+                    >
+                      {themeSaveStatus.text}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={savingTheme}
+                    onClick={async () => {
+                      const hex = selectedThemeColor || "#4F46E5";
+                      if (!profile?.id) return;
+                      setSavingTheme(true);
+                      setThemeSaveStatus(null);
+                      try {
+                        applyDynamicThemeColor(hex);
+                        if (typeof window !== "undefined") {
+                          localStorage.setItem(`yawmi_theme_color_${profile.id}`, hex);
+                        }
+                        setProfile((prev: any) => (prev ? { ...prev, theme_color: hex } : prev));
+                        const { error } = await supabase
+                          .from("profiles")
+                          .update({ theme_color: hex })
+                          .eq("id", profile.id);
+                        setThemeSaveStatus(
+                          error
+                            ? { ok: false, text: error.message }
+                            : { ok: true, text: language === "ar" ? "تم حفظ اللون بنجاح ✓" : "Theme color saved ✓" }
+                        );
+                      } finally {
+                        setSavingTheme(false);
+                      }
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-60"
+                  >
+                    {savingTheme && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{language === "ar" ? "حفظ اللون" : "Save Color"}</span>
+                  </button>
                 </div>
               )}
             </div>
