@@ -159,6 +159,7 @@ export default function DashboardLayout({
 
   const handleCompleteAdminTour = async () => {
     setAdminTourOpen(false);
+    setSidebarOpen(false);
     if (profile?.id) {
       if (typeof window !== "undefined") {
         localStorage.setItem(`yawmi_admin_tour_done_${profile.id}`, "1");
@@ -194,6 +195,7 @@ export default function DashboardLayout({
       descAr: "تابع أعداد الفروع والموظفين والورديات وكود دعوة الشركة، وانشر التعميمات الفورية لتصل إلى تطبيقات جميع الموظفين.",
       descEn: "Monitor branches, employees, shifts, company invite code, and publish instant announcements to all staff.",
       icon: <LayoutDashboard className="w-5 h-5" />,
+      onEnter: () => setSidebarOpen(false),
     },
     {
       id: "admin-branches",
@@ -203,6 +205,8 @@ export default function DashboardLayout({
       descAr: "أضف فروعك وحدد السياج الجغرافي (GPS)، واختر بين الكشك الحي المتجدد كل 60 ثانية أو الباركود الثابت للطباعة، مع خيار السيلفي الإلزامي.",
       descEn: "Set branch GPS geofences, choose between 60s Dynamic Kiosk or Static Printable QR, and toggle mandatory selfie.",
       icon: <MapPin className="w-5 h-5" />,
+      onEnter: () => setSidebarOpen(true),
+      onLeave: () => setSidebarOpen(false),
     },
     {
       id: "admin-employees",
@@ -212,6 +216,8 @@ export default function DashboardLayout({
       descAr: "اعتمد الموظفين الجدد، عيّن الفروع والورديات والصلاحيات، وأرسل روابط استعادة كلمة المرور أو فك ربط الجهاز بنقرة واحدة.",
       descEn: "Approve new hires, assign branches and shifts, and trigger password reset links or device resets in one click.",
       icon: <Users className="w-5 h-5" />,
+      onEnter: () => setSidebarOpen(true),
+      onLeave: () => setSidebarOpen(false),
     },
     {
       id: "admin-requests",
@@ -221,6 +227,8 @@ export default function DashboardLayout({
       descAr: "راجع طلبات الإجازات والاستئذان والتعديلات اليدوية؛ وعند قبول الإجازة يتم خصم أيامها تلقائياً من رصيد الموظف السنوي.",
       descEn: "Review leave, permission, and manual edits; approving annual leave automatically deducts days from the employee balance.",
       icon: <FileCheck2 className="w-5 h-5" />,
+      onEnter: () => setSidebarOpen(true),
+      onLeave: () => setSidebarOpen(false),
     },
     {
       id: "admin-reports",
@@ -230,6 +238,8 @@ export default function DashboardLayout({
       descAr: "صدّر كشوف الحضور والتأخير والإضافي بصيغة Excel (UTF-8) وPDF، وأغلق الشهر لحماية السجلات من أي تعديل.",
       descEn: "Export attendance, late minutes, and overtime to Excel (UTF-8) or PDF, and lock the month for payroll audit.",
       icon: <FileBarChart2 className="w-5 h-5" />,
+      onEnter: () => setSidebarOpen(true),
+      onLeave: () => setSidebarOpen(false),
     },
   ];
 

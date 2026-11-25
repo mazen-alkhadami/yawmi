@@ -68,6 +68,74 @@ import {
   Timer,
 } from "lucide-react";
 
+export interface FeedNotificationItem {
+  id: string;
+  kind: "announcement" | "request_status";
+  title: string;
+  body: string;
+  status?: "pending" | "in_review" | "approved" | "rejected";
+  priority?: "normal" | "urgent";
+  timestamp: string;
+  source: "company" | "request" | "ai";
+}
+
+function buildEmployeeFeedNotifications(
+  announcements: any[],
+  outgoingRequests: any[],
+  language: "ar" | "en"
+): FeedNotificationItem[] {
+  const annItems: FeedNotificationItem[] = (announcements || []).map((ann) => ({
+    id: `ann_${ann.id}`,
+    kind: "announcement",
+    title: ann.title,
+    body: ann.body,
+    priority: ann.priority || "normal",
+    timestamp: ann.created_at,
+    source: "company",
+  }));
+
+  const reqLabel = (type: string) => {
+    switch (type) {
+      case "leave":
+        return language === "ar" ? "طلب إجازة" : "Leave Request";
+      case "permission":
+        return language === "ar" ? "طلب استئذان" : "Permission Request";
+      case "manual_edit":
+        return language === "ar" ? "تعديل حضور يدوي" : "Manual Edit";
+      case "shift_change":
+        return language === "ar" ? "تغيير شفت" : "Shift Change";
+      default:
+        return language === "ar" ? "إعادة ربط جهاز" : "Device Reset";
+    }
+  };
+
+  const reqItems: FeedNotificationItem[] = (outgoingRequests || []).map((req) => ({
+    id: `req_${req.id}`,
+    kind: "request_status",
+    title: reqLabel(req.type),
+    body:
+      req.review_note ||
+      (req.status === "approved"
+        ? language === "ar"
+          ? "تمت الموافقة على طلبك بنجاح."
+          : "Your request has been approved."
+        : req.status === "rejected"
+        ? language === "ar"
+          ? "تم رفض الطلب من الإدارة."
+          : "Your request was rejected."
+        : language === "ar"
+        ? "طلبك قيد المراجعة لدى الإدارة."
+        : "Your request is currently under review."),
+    status: req.status,
+    timestamp: req.updated_at || req.created_at,
+    source: "request",
+  }));
+
+  return [...annItems, ...reqItems].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+}
+
 export default function EmployeeApp() {
   const router = useRouter();
   const { t, dir, language } = useLanguage();
@@ -317,8 +385,9 @@ export default function EmployeeApp() {
     setShowInstallBanner(false);
   };
 
-  // Fetch Employee Data (Stale-While-Revalidate + Parallel Queries)
-  const fetchEmployeeData = async () => {
+  // Synchronous Instant Lock Check (< 50ms) before any network/auth await
+  const runInstantLockPrecheck = (): boolean => {
+    if (typeof window === "undefined") return false;
     const cached = getCachedData<any>("employee_app");
     if (cached) {
       if (cached.user) setUser(cached.user);
@@ -331,17 +400,44 @@ export default function EmployeeApp() {
       if (cached.historyLogs) setHistoryLogs(cached.historyLogs);
       if (cached.outgoingRequests) setOutgoingRequests(cached.outgoingRequests);
       if (cached.incomingRequests) setIncomingRequests(cached.incomingRequests);
+    }
 
-      if (cached.user?.id) {
-        const cachedUnlock = getQuickUnlockSettings(cached.user.id);
-        setQuickSettings(cachedUnlock);
-        if ((cachedUnlock.pinEnabled || cachedUnlock.biometricEnabled) && !isSessionUnlocked(cached.user.id)) {
-          setIsLocked(true);
+    let lockUserId: string | null =
+      cached?.user?.id || localStorage.getItem("yawmi_last_user_id");
+
+    if (!lockUserId) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("yawmi_pin_enabled_") && localStorage.getItem(k) === "true") {
+          lockUserId = k.replace("yawmi_pin_enabled_", "");
+          break;
         }
       }
+    }
+
+    if (lockUserId) {
+      const quick = getQuickUnlockSettings(lockUserId);
+      setQuickSettings(quick);
+      if ((quick.pinEnabled || quick.biometricEnabled) && !isSessionUnlocked(lockUserId)) {
+        setUser((prev: any) => prev || { id: lockUserId });
+        setIsLocked(true);
+        setLockChecked(true);
+        setLoading(false);
+        return true;
+      }
+    }
+
+    if (cached) {
       setLockChecked(true);
       setLoading(false);
-    } else {
+    }
+    return false;
+  };
+
+  // Fetch Employee Data (Stale-While-Revalidate + Parallel Queries)
+  const fetchEmployeeData = async () => {
+    const lockedImmediately = runInstantLockPrecheck();
+    if (!lockedImmediately && !getCachedData<any>("employee_app")) {
       setLoading(true);
     }
 
@@ -359,6 +455,9 @@ export default function EmployeeApp() {
         return;
       }
       setUser(authUser);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("yawmi_last_user_id", authUser.id);
+      }
 
       // Fetch profile
       const { data: prof, error: profErr } = await supabase
@@ -464,19 +563,19 @@ export default function EmployeeApp() {
         incomingRequests: inReqsList,
       });
 
-      // Compute unread feed count (announcements + non-pending request updates)
+      // Compute unread feed count across announcements AND under-review / approved / rejected requests
       if (typeof window !== "undefined") {
         const lastSeenStr = localStorage.getItem(`yawmi_feed_seen_${authUser.id}`);
         const lastSeenTime = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
-        const unreadAnn = loadedAnnouncements.filter(
-          (a) => new Date(a.created_at).getTime() > lastSeenTime
+        const feedItems = buildEmployeeFeedNotifications(
+          loadedAnnouncements,
+          outReqsList,
+          language
+        );
+        const unreadCount = feedItems.filter(
+          (item) => new Date(item.timestamp).getTime() > lastSeenTime
         ).length;
-        const unreadReqs = (outReqsList || []).filter(
-          (r: any) =>
-            r.status !== "pending" &&
-            new Date(r.updated_at || r.created_at).getTime() > lastSeenTime
-        ).length;
-        setUnreadFeedCount(unreadAnn + unreadReqs);
+        setUnreadFeedCount(unreadCount);
       }
 
       // Check Quick Unlock Settings
@@ -764,6 +863,9 @@ export default function EmployeeApp() {
 
   const handleLogout = async () => {
     clearUserCache();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("yawmi_last_user_id");
+    }
     await supabase.auth.signOut();
     router.push("/login");
   };
@@ -814,6 +916,7 @@ export default function EmployeeApp() {
       setNewReqModalOpen(false);
       setReqReason("");
       await fetchRequests(user.id);
+      setUnreadFeedCount((prev) => prev + 1);
     } catch (err: any) {
       setReqAlert({ type: "error", text: err.message || "فشل إرسال الطلب." });
     } finally {
@@ -1385,9 +1488,10 @@ export default function EmployeeApp() {
             aria-label={language === "ar" ? "التعميمات والإشعارات" : "Announcements & Updates"}
           >
             <Bell className="w-4 h-4" />
-            {unreadFeedCount > 0 && (
-              <span className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
-                {unreadFeedCount > 9 ? "9+" : unreadFeedCount}
+            {(unreadFeedCount > 0 ||
+              outgoingRequests.some((r) => r.status === "pending" || r.status === "in_review" || r.status === "approved")) && (
+              <span className="absolute -top-1 -end-1 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center shadow-sm ring-2 ring-white dark:ring-slate-900">
+                {unreadFeedCount > 0 ? (unreadFeedCount > 9 ? "9+" : unreadFeedCount) : ""}
               </span>
             )}
           </button>
@@ -2703,22 +2807,21 @@ export default function EmployeeApp() {
                 )}
               </div>
 
-              {/* Section 2: Recent Request Status Updates */}
+              {/* Section 2: Recent Request Status Updates (Under Review, Approved & Rejected) */}
               <div className="space-y-2.5">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  {language === "ar" ? "تحديثات طلباتك الأخيرة" : "Recent Request Updates"}
+                  {language === "ar" ? "حالة وتحديثات طلباتك" : "Your Request Status & Updates"}
                 </div>
-                {outgoingRequests.filter((r) => r.status !== "pending").length === 0 ? (
+                {buildEmployeeFeedNotifications([], outgoingRequests, language).length === 0 ? (
                   <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-center text-xs text-slate-400">
-                    {language === "ar" ? "لا توجد تحديثات جديدة على طلباتك." : "No recent request updates."}
+                    {language === "ar" ? "لا توجد طلبات مسجلة حالياً." : "No requests yet."}
                   </div>
                 ) : (
-                  outgoingRequests
-                    .filter((r) => r.status !== "pending")
-                    .slice(0, 6)
-                    .map((req) => (
+                  buildEmployeeFeedNotifications([], outgoingRequests, language)
+                    .slice(0, 8)
+                    .map((item) => (
                       <div
-                        key={req.id}
+                        key={item.id}
                         onClick={() => {
                           setFeedDrawerOpen(false);
                           setActiveTab("requests");
@@ -2727,46 +2830,32 @@ export default function EmployeeApp() {
                       >
                         <div className="min-w-0">
                           <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
-                            {req.type === "leave"
-                              ? language === "ar"
-                                ? "طلب إجازة"
-                                : "Leave Request"
-                              : req.type === "permission"
-                              ? language === "ar"
-                                ? "طلب استئذان"
-                                : "Permission Request"
-                              : req.type === "manual_edit"
-                              ? language === "ar"
-                                ? "تعديل حضور يدوي"
-                                : "Manual Edit"
-                              : req.type === "shift_change"
-                              ? language === "ar"
-                                ? "تغيير شفت"
-                                : "Shift Change"
-                              : language === "ar"
-                              ? "إعادة ربط جهاز"
-                              : "Device Reset"}
+                            {item.title}
                           </span>
-                          {req.review_note && (
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
-                              {req.review_note}
-                            </span>
-                          )}
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+                            {item.body}
+                          </span>
                         </div>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                            req.status === "approved"
+                            item.status === "approved"
                               ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                              : "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                              : item.status === "rejected"
+                              ? "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                              : "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
                           }`}
                         >
-                          {req.status === "approved"
+                          {item.status === "approved"
                             ? language === "ar"
-                              ? "مقبول"
+                              ? "تمت الموافقة"
                               : "Approved"
+                            : item.status === "rejected"
+                            ? language === "ar"
+                              ? "مرفوض"
+                              : "Rejected"
                             : language === "ar"
-                            ? "مرفوض"
-                            : "Rejected"}
+                            ? "قيد المراجعة"
+                            : "Under Review"}
                         </span>
                       </div>
                     ))

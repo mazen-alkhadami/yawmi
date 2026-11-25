@@ -19,6 +19,7 @@ export interface TourStep {
   descEn: string;
   icon?: React.ReactNode;
   onEnter?: () => void;
+  onLeave?: () => void;
 }
 
 interface ProductTourProps {
@@ -110,9 +111,10 @@ export function ProductTour({
     }
 
     let cleanupMeasure: (() => void) | undefined;
+    const delay = step?.onEnter ? 330 : 80;
     const initTimer = setTimeout(() => {
       cleanupMeasure = measureTarget(true);
-    }, 80);
+    }, delay);
 
     const handleViewportChange = () => {
       measureTarget(false);
@@ -126,6 +128,9 @@ export function ProductTour({
       if (cleanupMeasure) cleanupMeasure();
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
+      if (step?.onLeave) {
+        step.onLeave();
+      }
     };
   }, [isOpen, currentStep, step, measureTarget]);
 
