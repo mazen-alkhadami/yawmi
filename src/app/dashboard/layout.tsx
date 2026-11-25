@@ -12,6 +12,8 @@ import { NotificationsBell } from "@/components/notifications-bell";
 import { ProductTour, TourStep } from "@/components/ProductTour";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
 import { applyDynamicThemeColor } from "@/lib/themeColor";
+import { GlobalBroadcastBanner } from "@/components/GlobalBroadcastBanner";
+import { normalizePricingConfig, PricingConfig } from "@/lib/usePlatformContact";
 import {
   LayoutDashboard,
   MapPin,
@@ -38,6 +40,7 @@ import {
 export interface PlatformContactSettings {
   support_whatsapp?: string | null;
   support_email?: string | null;
+  pricing_config?: PricingConfig | null;
   bank_transfer_details?: {
     bank_name?: string;
     account_name?: string;
@@ -162,7 +165,7 @@ export default function DashboardLayout({
           .maybeSingle(),
         supabase
           .from("platform_settings")
-          .select("support_whatsapp, support_email, bank_transfer_details")
+          .select("support_whatsapp, support_email, bank_transfer_details, pricing_config")
           .eq("id", 1)
           .maybeSingle(),
       ]);
@@ -317,14 +320,15 @@ export default function DashboardLayout({
   const selectedPlanLabelEn = selectedUpgradePlan === "pro" ? "Pro Plan" : "Enterprise Plan";
   const selectedCycleLabelAr = selectedBillingCycle === "yearly" ? "سنوي" : "شهري";
   const selectedCycleLabelEn = selectedBillingCycle === "yearly" ? "Annual" : "Monthly";
+  const activePricing = normalizePricingConfig(platformSettings?.pricing_config);
   const selectedPriceSar =
     selectedUpgradePlan === "pro"
       ? selectedBillingCycle === "yearly"
-        ? "1,990"
-        : "199"
+        ? activePricing.pro.annual.toLocaleString("en-US")
+        : activePricing.pro.monthly.toLocaleString("en-US")
       : selectedBillingCycle === "yearly"
-      ? "4,990"
-      : "499";
+      ? activePricing.enterprise.annual.toLocaleString("en-US")
+      : activePricing.enterprise.monthly.toLocaleString("en-US");
 
   const upgradeMessageAr = `مرحباً، أرغب في ترقية اشتراك شركة "${company?.name || ""}" (كود: ${company?.invite_code || ""}) إلى ${selectedPlanLabelAr} — الاشتراك: ${selectedCycleLabelAr} (${selectedPriceSar} ريال).`;
   const upgradeMessageEn = `Hello, I would like to upgrade "${company?.name || ""}" (Code: ${company?.invite_code || ""}) to the ${selectedPlanLabelEn} — ${selectedCycleLabelEn} (${selectedPriceSar} SAR).`;
@@ -373,6 +377,7 @@ export default function DashboardLayout({
         className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex flex-col font-cairo"
         style={{ "--brand-primary": brandColor } as React.CSSProperties}
       >
+        <GlobalBroadcastBanner />
         {/* Top Header */}
         <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -671,7 +676,9 @@ export default function DashboardLayout({
                     </span>
                   </div>
                   <div className="text-2xl font-black text-slate-900 dark:text-white mb-2">
-                    {selectedBillingCycle === "yearly" ? "1,990" : "199"}{" "}
+                    {selectedBillingCycle === "yearly"
+                      ? activePricing.pro.annual.toLocaleString("en-US")
+                      : activePricing.pro.monthly.toLocaleString("en-US")}{" "}
                     <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                       {language === "ar"
                         ? `ريال / ${selectedBillingCycle === "yearly" ? "سنوياً" : "شهرياً"}`
@@ -715,7 +722,9 @@ export default function DashboardLayout({
                     )}
                   </div>
                   <div className="text-2xl font-black text-slate-900 dark:text-white mb-2">
-                    {selectedBillingCycle === "yearly" ? "4,990" : "499"}{" "}
+                    {selectedBillingCycle === "yearly"
+                      ? activePricing.enterprise.annual.toLocaleString("en-US")
+                      : activePricing.enterprise.monthly.toLocaleString("en-US")}{" "}
                     <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                       {language === "ar"
                         ? `ريال / ${selectedBillingCycle === "yearly" ? "سنوياً" : "شهرياً"}`

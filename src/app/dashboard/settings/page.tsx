@@ -6,6 +6,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { createClient } from "@/lib/supabase/client";
 import { getCachedData, setCachedData } from "@/lib/instantCache";
 import { applyDynamicThemeColor, THEME_COLOR_PRESETS } from "@/lib/themeColor";
+import { normalizePricingConfig } from "@/lib/usePlatformContact";
 import {
   Settings,
   Building2,
@@ -672,7 +673,8 @@ export default function CompanySettingsPage() {
               </span>
               <span className="text-xs font-bold text-indigo-600 block uppercase">Pro</span>
               <div className="text-2xl font-black">
-                199 <span className="text-xs font-normal text-slate-400">ريال / شهرياً</span>
+                {normalizePricingConfig((platformSettings as any)?.pricing_config).pro.monthly}{" "}
+                <span className="text-xs font-normal text-slate-400">ريال / شهرياً</span>
               </div>
               <p className="text-xs text-slate-500">للشركات المتوسطة والمتوسعة</p>
               <ul className="text-xs space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700">
@@ -695,7 +697,8 @@ export default function CompanySettingsPage() {
             <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-3">
               <span className="text-xs font-bold text-purple-600 block uppercase">Business</span>
               <div className="text-2xl font-black">
-                499 <span className="text-xs font-normal text-slate-400">ريال / شهرياً</span>
+                {normalizePricingConfig((platformSettings as any)?.pricing_config).enterprise.monthly}{" "}
+                <span className="text-xs font-normal text-slate-400">ريال / شهرياً</span>
               </div>
               <p className="text-xs text-slate-500">للمؤسسات والشركات الكبيرة</p>
               <ul className="text-xs space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700">

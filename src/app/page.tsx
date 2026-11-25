@@ -33,6 +33,12 @@ import {
   Menu,
   X,
   MessageCircle,
+  ChevronDown,
+  Utensils,
+  Stethoscope,
+  Store,
+  Briefcase,
+  HardHat,
 } from "lucide-react";
 
 /**
@@ -211,8 +217,9 @@ function YawmiMascot({ lang }: { lang: "ar" | "en" }) {
 
 export default function MarketingLandingPage() {
   const { t, dir, language } = useLanguage();
-  const { whatsappUrl, supportEmail } = usePlatformContact();
+  const { whatsappUrl, supportEmail, pricingConfig } = usePlatformContact();
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
+  const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
 
   const ArrowIcon = dir === "rtl" ? ArrowLeft : ArrowRight;
 
@@ -312,8 +319,8 @@ export default function MarketingLandingPage() {
       nameEn: "Pro Business",
       badgeAr: "الأكثر طلباً وملاءمة",
       badgeEn: "Most Popular",
-      priceMonthly: 149,
-      priceYearly: 1490,
+      priceMonthly: pricingConfig.pro.monthly,
+      priceYearly: pricingConfig.pro.annual,
       descAr: "الخيار الأمثل للشركات والمؤسسات المتوسطة التي تدير عدة فروع ومجموعات عمل.",
       descEn: "The premier solution for growing companies managing multi-branch operations.",
       featuresAr: [
@@ -346,8 +353,8 @@ export default function MarketingLandingPage() {
       nameEn: "Enterprise",
       badgeAr: "سعة غير محدودة",
       badgeEn: "Unlimited Scale",
-      priceMonthly: 399,
-      priceYearly: 3990,
+      priceMonthly: pricingConfig.enterprise.monthly,
+      priceYearly: pricingConfig.enterprise.annual,
       descAr: "حل مؤسسي شامل لسلاسل المتاجر، المصانع، والشركات ذات الفروع الواسعة.",
       descEn: "End-to-end corporate solution for retail chains, factories, and nationwide enterprises.",
       featuresAr: [
@@ -678,6 +685,253 @@ export default function MarketingLandingPage() {
         </div>
       </section>
 
+      {/* 4B. Start in 3 Simple Steps */}
+      <section className="py-16 sm:py-20 bg-slate-100/70 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 mb-3">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{language === "ar" ? "تجهيز سريع بدون تعقيد" : "Quick Zero-Hardware Setup"}</span>
+            </span>
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white leading-relaxed">
+              {language === "ar" ? "ابدأ في 3 خطوات بسيطة" : "Start in 3 Simple Steps"}
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                num: "01",
+                icon: MapPin,
+                titleAr: "أضف فرعك وحدد النطاق",
+                titleEn: "Add Branch & Geofence",
+                descAr: "حدد موقع الفرع على الخريطة ونطاق الـ GPS المسموح به مع فترات السماح والشفتات خلال ثوانٍ.",
+                descEn: "Set branch GPS boundaries and shift grace periods in seconds.",
+              },
+              {
+                num: "02",
+                icon: QrCode,
+                titleAr: "اعرض أو اطبع رمز الـ QR",
+                titleEn: "Display or Print QR",
+                descAr: "استخدم شاشة الكشك الحي المتجدد كل 60 ثانية أو اطبع ملصق الـ QR الثابت مع التحقق بالـ GPS والسيلفي.",
+                descEn: "Use either a dynamic rotating kiosk QR or a static printed QR poster with strict GPS + selfie verification.",
+              },
+              {
+                num: "03",
+                icon: FileText,
+                titleAr: "تابع الحضور والتقارير لحظياً",
+                titleEn: "Track Live & Share",
+                descAr: "راقب الحضور المباشر، استخرج تقارير PDF رسمية بشعار شركتك، وشارك ملخص الواتساب اليومي بضغطة زر.",
+                descEn: "Monitor live attendance, export official company-branded PDF reports, and share daily WhatsApp summaries in one click.",
+              },
+            ].map((step) => {
+              const Icon = step.icon;
+              return (
+                <div
+                  key={step.num}
+                  className="relative p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-11 h-11 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200 dark:border-indigo-800">
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <span className="text-2xl font-black font-mono text-slate-200 dark:text-slate-700">
+                      {step.num}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white mb-2">
+                    {language === "ar" ? step.titleAr : step.titleEn}
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {language === "ar" ? step.descAr : step.descEn}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* 4C. Comparison Table: Yawmi vs. Traditional Biometric Devices */}
+      <section className="py-16 sm:py-24 border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white mb-3 leading-relaxed">
+              {language === "ar"
+                ? "مقارنة يَومي مع أجهزة البصمة التقليدية"
+                : "Yawmi vs. Traditional Biometric Devices"}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
+              {language === "ar"
+                ? "لماذا تنتقل الشركات الحديثة إلى التحضير السحابي الذكي؟"
+                : "Why modern businesses switch from legacy hardware to cloud attendance."}
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm text-start min-w-[640px]">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+                    <th className="p-4 sm:p-5 font-extrabold text-slate-700 dark:text-slate-300 w-1/4">
+                      {language === "ar" ? "وجه المقارنة" : "Comparison"}
+                    </th>
+                    <th className="p-4 sm:p-5 font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 w-[38%]">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>{language === "ar" ? "منصة يَومي (Yawmi)" : "Yawmi Cloud Platform"}</span>
+                      </div>
+                    </th>
+                    <th className="p-4 sm:p-5 font-extrabold text-slate-500 dark:text-slate-400 w-[37%]">
+                      <div className="flex items-center gap-2">
+                        <X className="w-4 h-4 text-rose-500 shrink-0" />
+                        <span>{language === "ar" ? "أجهزة البصمة التقليدية" : "Traditional Biometric Devices"}</span>
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {[
+                    {
+                      labelAr: "التكلفة والأجهزة",
+                      labelEn: "Setup Cost & Hardware",
+                      yawmiAr: "تكلفة أجهزة صفرية — يعمل على هواتف الموظفين أو ملصق QR مطبوع.",
+                      yawmiEn: "Zero hardware cost — runs on existing phones/tablets or printed QR.",
+                      legacyAr: "أجهزة باهظة الثمن لكل فرع مع تكاليف استبدال مستمرة.",
+                      legacyEn: "Expensive biometric devices required per branch.",
+                    },
+                    {
+                      labelAr: "التركيب والصيانة",
+                      labelEn: "Installation & Maintenance",
+                      yawmiAr: "جاهز خلال دقيقتين بدون تمديدات أو فنيين أو أعطال.",
+                      yawmiEn: "Ready in 2 minutes, zero wiring or hardware maintenance.",
+                      legacyAr: "يحتاج فني تركيب، تمديدات شبكة، وصيانة متكررة.",
+                      legacyEn: "Requires technicians, cabling, and frequent repairs.",
+                    },
+                    {
+                      labelAr: "منع التلاعب والدقة",
+                      labelEn: "Anti-Fraud & Accuracy",
+                      yawmiAr: "سياج جغرافي GPS + سيلفي بالكاميرا الأمامية + QR متجدد أو مرتبط بالفرع.",
+                      yawmiEn: "GPS geofencing + mandatory front-camera selfie + rotating/branch QR.",
+                      legacyAr: "فشل قراءة البصمة الرطبة أو المتضررة ومخاطر التلاعب.",
+                      legacyEn: "Buddy-punching risks and failed wet/damaged fingerprints.",
+                    },
+                    {
+                      labelAr: "تعدد الفروع والمتابعة",
+                      labelEn: "Multi-Branch & Live Tracking",
+                      yawmiAr: "مزامنة سحابية فورية لعدد غير محدود من الفروع وشاشة حضور مباشر.",
+                      yawmiEn: "Instant cloud sync across unlimited branches + Live Attendance.",
+                      legacyAr: "نقل يدوي عبر USB أو ربط شبكات محلية معقدة.",
+                      legacyEn: "Manual USB exports or complex local network setups.",
+                    },
+                    {
+                      labelAr: "التقارير وملخص الواتساب",
+                      labelEn: "Reports & WhatsApp Summaries",
+                      yawmiAr: "ملخص واتساب بضغطة زر، احتساب الغياب تلقائياً، وتقارير PDF رسمية.",
+                      yawmiEn: "1-click WhatsApp summaries, auto-absence, and official PDF reports.",
+                      legacyAr: "برامج سطح مكتب قديمة ومعقدة لاستخراج البيانات.",
+                      legacyEn: "Complex, outdated desktop software to export logs.",
+                    },
+                  ].map((row) => (
+                    <tr key={row.labelEn}>
+                      <td className="p-4 sm:p-5 font-bold text-slate-800 dark:text-slate-200">
+                        {language === "ar" ? row.labelAr : row.labelEn}
+                      </td>
+                      <td className="p-4 sm:p-5 bg-indigo-50/40 dark:bg-indigo-950/15 text-slate-800 dark:text-slate-100 font-semibold">
+                        <span className="inline-flex items-start gap-2">
+                          <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                          <span>{language === "ar" ? row.yawmiAr : row.yawmiEn}</span>
+                        </span>
+                      </td>
+                      <td className="p-4 sm:p-5 text-slate-500 dark:text-slate-400">
+                        <span className="inline-flex items-start gap-2">
+                          <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                          <span>{language === "ar" ? row.legacyAr : row.legacyEn}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4D. Target Industries / Sectors Section */}
+      <section className="py-16 sm:py-20 bg-slate-50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white mb-3 leading-relaxed">
+              {language === "ar" ? "القطاعات المستهدفة" : "Built for Every Industry"}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
+              {language === "ar"
+                ? "مرونة كاملة تلائم طبيعة عمل كل منشأة بمختلف أحجامها."
+                : "Flexible attendance workflows tailored to every operational model."}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {[
+              {
+                icon: Utensils,
+                titleAr: "المطاعم والمقاهي",
+                titleEn: "Restaurants & Cafes",
+                descAr: "إدارة الشفتات المتعددة ومتابعة الفروع لحظياً بدقة عالية.",
+                descEn: "Multi-shift scheduling & real-time branch tracking.",
+              },
+              {
+                icon: Stethoscope,
+                titleAr: "العيادات والمراكز الطبية",
+                titleEn: "Clinics & Medical Centers",
+                descAr: "التزام صارم بالمواعيد مع استقبال الأعذار الطبية ومرفقاتها.",
+                descEn: "Strict punctuality & medical excuse attachments.",
+              },
+              {
+                icon: Store,
+                titleAr: "المتاجر والتجزئة",
+                titleEn: "Retail & Stores",
+                descAr: "ملصق QR مطبوع لكل متجر بدون الحاجة لأي أجهزة إضافية.",
+                descEn: "Static printed QR per store with zero hardware cost.",
+              },
+              {
+                icon: Briefcase,
+                titleAr: "الشركات والمكاتب",
+                titleEn: "Companies & Offices",
+                descAr: "إدارة أرصدة الإجازات، البطاقات الذكية، وتقارير الموارد البشرية.",
+                descEn: "Leave balances, Digital IDs, and HR PDF reports.",
+              },
+              {
+                icon: HardHat,
+                titleAr: "المقاولات والعمل الميداني",
+                titleEn: "Contracting & Field Teams",
+                descAr: "تحقق صارم من الحضور داخل النطاق الجغرافي لمواقع المشاريع.",
+                descEn: "Strict GPS geofencing verification on project sites.",
+              },
+            ].map((sector) => {
+              const Icon = sector.icon;
+              return (
+                <div
+                  key={sector.titleEn}
+                  className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition space-y-3"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200 dark:border-indigo-800">
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    {language === "ar" ? sector.titleAr : sector.titleEn}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {language === "ar" ? sector.descAr : sector.descEn}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* 5. Pricing Section */}
       <section id="pricing" className="py-16 sm:py-24 bg-slate-100/60 dark:bg-slate-900/40 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -812,6 +1066,117 @@ export default function MarketingLandingPage() {
               );
             })}
           </div>
+        </div>
+      </section>
+
+      {/* 5B. Interactive FAQ Accordion Section */}
+      <section id="faq" className="py-16 sm:py-24 border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white mb-3 leading-relaxed">
+              {language === "ar" ? "الأسئلة الشائعة" : "Frequently Asked Questions"}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
+              {language === "ar"
+                ? "إجابات واضحة على أهم استفسارات أصحاب الأعمال ومديري الموارد البشرية."
+                : "Clear answers to the most common questions from business owners & HR teams."}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              {
+                qAr: "هل يمكن للموظف التلاعب بموقع الـ GPS أو التحضير عن زميله؟",
+                qEn: "Can an employee spoof GPS or punch in for a coworker?",
+                aAr: "لا؛ يتحقق النظام من نطاق الـ GPS الفعلي للفرع بدقة، مع خيار السيلفي الإلزامي بالكاميرا الأمامية المباشرة، ورمز QR متجدد كل 60 ثانية أو مرتبط بالفرع وربط الجهاز بالموظف.",
+                aEn: "No. Yawmi enforces strict branch GPS geofence radius checks, optional mandatory live front-camera selfie verification, device binding, and either 60-second rotating or branch-bound QR codes.",
+              },
+              {
+                qAr: "هل يحتاج الموظف تحميل تطبيق من المتجر؟",
+                qEn: "Do employees need to download an app from the App Store?",
+                aAr: "لا يشترط ذلك؛ يعمل يَومي كتطبيق ويب تقدمي (PWA) يُثبّت مباشرة من المتصفح على آيفون وأندرويد خلال ثوانٍ، مع دعم القفل السريع ببصمة الهاتف (WebAuthn).",
+                aEn: "No store download is required. Yawmi installs as a fast PWA directly from the browser on iOS and Android, complete with WebAuthn biometric & PIN quick unlock.",
+              },
+              {
+                qAr: "هل أحتاج شراء جهاز تابلت لكل فرع؟",
+                qEn: "Do I need to buy a tablet for every branch?",
+                aAr: "أبداً؛ يمكنك اختيار وضع الباركود الثابت للطباعة وتعليقه في الفرع مع تفعيل التحقق الصارم بالـ GPS والسيلفي، بتكلفة أجهزة صفرية.",
+                aEn: "Not at all. You can use the Static Printable QR poster option per branch paired with strict GPS geofencing and selfie verification at zero hardware cost.",
+              },
+              {
+                qAr: "كيف أتابع الحضور اليومي وأستخرج تقارير الرواتب؟",
+                qEn: "How do I monitor daily attendance and export payroll reports?",
+                aAr: "عبر شاشة الحضور المباشر، واحتساب الغياب التلقائي، ومولّد ملخص الواتساب اليومي والأسبوعي بضغطة زر، بالإضافة لتقارير Excel وPDF الرسمية بشعار شركتك.",
+                aEn: "Use the Live Attendance screen, automated absence marking, 1-click daily/weekly WhatsApp summaries, and company-branded PDF/Excel payroll exports.",
+              },
+              {
+                qAr: "هل يدعم النظام عدة فروع وصلاحيات مشرفين؟",
+                qEn: "Does the system support multiple branches and supervisor permissions?",
+                aAr: "نعم؛ يدعم النظام عدداً غير محدود من الفروع مع بوابة مخصصة لمشرف كل فرع (/supervisor) وتعميمات إدارية موجهة على مستوى الشركة أو الفرع.",
+                aEn: "Yes. Yawmi supports multiple branches, a dedicated /supervisor portal scoped to assigned branches, and company-wide or branch-targeted announcements.",
+              },
+            ].map((item, idx) => {
+              const isOpen = openFaqIdx === idx;
+              return (
+                <div
+                  key={item.qEn}
+                  className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenFaqIdx(isOpen ? null : idx)}
+                    className="w-full p-4 sm:p-5 flex items-center justify-between gap-4 text-start font-bold text-sm sm:text-base text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 transition"
+                  >
+                    <span>{language === "ar" ? item.qAr : item.qEn}</span>
+                    <ChevronDown
+                      className={`w-5 h-5 text-slate-400 shrink-0 transition-transform duration-200 ${
+                        isOpen ? "rotate-180 text-indigo-600 dark:text-indigo-400" : ""
+                      }`}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div className="px-4 sm:px-5 pb-4 sm:pb-5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3">
+                      {language === "ar" ? item.aAr : item.aEn}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Dynamic Contact CTA below FAQ (only shown if configured in /hq) */}
+          {(whatsappUrl || supportEmail) && (
+            <div className="mt-8 p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 text-center sm:text-start">
+                {language === "ar"
+                  ? "هل لديك استفسار خاص بمنشأتك؟ فريقنا جاهز للرد فوراً."
+                  : "Have a specific question for your business? Our team is ready to help."}
+              </p>
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                {whatsappUrl && (
+                  <a
+                    href={whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>{language === "ar" ? "واتساب" : "WhatsApp"}</span>
+                  </a>
+                )}
+                {supportEmail && (
+                  <a
+                    href={`mailto:${supportEmail}`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>{language === "ar" ? "البريد الإلكتروني" : "Email"}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -976,7 +1341,7 @@ export default function MarketingLandingPage() {
             </p>
             <div className="flex items-center gap-3">
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                Yawmi v1.0.1
+                Yawmi v2.0
               </span>
               <span>•</span>
               <Link href="/terms" className="hover:underline">

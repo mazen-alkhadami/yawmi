@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getCachedData, setCachedData, clearUserCache } from "@/lib/instantCache";
+import { DEFAULT_PRICING_CONFIG, normalizePricingConfig } from "@/lib/usePlatformContact";
 import { YawmiLogo } from "@/components/yawmi-logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -33,6 +34,11 @@ import {
   Sparkles,
   Smartphone,
   Download,
+  Wrench,
+  Megaphone,
+  Copy,
+  MessageCircle,
+  DollarSign,
   MapPin,
   Menu,
   RefreshCw,
@@ -78,6 +84,16 @@ interface PlatformSettingsState {
   account_name: string;
   account_number: string;
   iban: string;
+  maintenance_mode: boolean;
+  maintenance_message: string;
+  global_announcement_active: boolean;
+  global_announcement_title: string;
+  global_announcement_body: string;
+  global_announcement_severity: "info" | "warning" | "urgent";
+  pro_monthly: number;
+  pro_annual: number;
+  enterprise_monthly: number;
+  enterprise_annual: number;
 }
 
 export default function SuperAdminHQPage() {
@@ -97,6 +113,11 @@ export default function SuperAdminHQPage() {
   const [totalBranches, setTotalBranches] = useState(0);
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [todayAttendanceCount, setTodayAttendanceCount] = useState(0);
+  const [todayLateCount, setTodayLateCount] = useState(0);
+  const [todayAbsentCount, setTodayAbsentCount] = useState(0);
+  const [todayRequestsCount, setTodayRequestsCount] = useState(0);
+  const [newCompaniesToday, setNewCompaniesToday] = useState(0);
+  const [copiedDailySummary, setCopiedDailySummary] = useState(false);
   const [pendingUpgradesCount, setPendingUpgradesCount] = useState(0);
   const [pwaInstalls, setPwaInstalls] = useState<any[]>([]);
 
@@ -131,6 +152,16 @@ export default function SuperAdminHQPage() {
     account_name: "",
     account_number: "",
     iban: "",
+    maintenance_mode: false,
+    maintenance_message: "نجري تحديثاً سريعاً لتحسين الأداء، نعود خلال دقائق.",
+    global_announcement_active: false,
+    global_announcement_title: "",
+    global_announcement_body: "",
+    global_announcement_severity: "info",
+    pro_monthly: DEFAULT_PRICING_CONFIG.pro.monthly,
+    pro_annual: DEFAULT_PRICING_CONFIG.pro.annual,
+    enterprise_monthly: DEFAULT_PRICING_CONFIG.enterprise.monthly,
+    enterprise_annual: DEFAULT_PRICING_CONFIG.enterprise.annual,
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
@@ -198,13 +229,15 @@ export default function SuperAdminHQPage() {
       }
 
       const todayStr = new Date().toISOString().split("T")[0];
+      const todayStartIso = `${todayStr}T00:00:00.000Z`;
       const [
         compCountRes,
         actCountRes,
         suspCountRes,
         branchCountRes,
         empCountRes,
-        todayAttRes,
+        todayAttLogsRes,
+        todayReqsRes,
         upCountRes,
         pwaRes,
         compsRes,
@@ -216,7 +249,8 @@ export default function SuperAdminHQPage() {
         supabase.from("companies").select("id", { count: "exact", head: true }).eq("status", "suspended"),
         supabase.from("branches").select("id", { count: "exact", head: true }),
         supabase.from("profiles").select("id", { count: "exact", head: true }).neq("role", "super_admin"),
-        supabase.from("attendance_logs").select("id", { count: "exact", head: true }).eq("shift_date", todayStr),
+        supabase.from("attendance_logs").select("id, status, late_minutes").eq("shift_date", todayStr),
+        supabase.from("requests").select("id", { count: "exact", head: true }).gte("created_at", todayStartIso),
         supabase.from("upgrade_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
         supabase.from("pwa_installs").select("*").order("created_at", { ascending: false }).limit(100),
         supabase.from("companies").select("*").order("created_at", { ascending: false }),
@@ -229,10 +263,15 @@ export default function SuperAdminHQPage() {
       const nextSusp = suspCountRes.count || 0;
       const nextBranches = branchCountRes.count || 0;
       const nextEmp = empCountRes.count || 0;
-      const nextTodayAtt = todayAttRes.count || 0;
+      const todayLogs = todayAttLogsRes.data || [];
+      const nextTodayAtt = todayLogs.filter((l: any) => l.status !== "absent").length;
+      const nextTodayLate = todayLogs.filter((l: any) => l.status !== "absent" && (l.late_minutes || 0) > 0).length;
+      const nextTodayAbsent = todayLogs.filter((l: any) => l.status === "absent").length;
+      const nextTodayReqs = todayReqsRes.count || 0;
       const nextPending = upCountRes.count || 0;
       const nextPwa = pwaRes.data || [];
       const nextComps = (compsRes.data as any) || [];
+      const nextNewComps = nextComps.filter((c: any) => (c.created_at || "").startsWith(todayStr)).length;
       const nextReqs = (reqsRes.data as any) || [];
 
       setTotalCompanies(nextTotal);
@@ -241,6 +280,10 @@ export default function SuperAdminHQPage() {
       setTotalBranches(nextBranches);
       setTotalEmployees(nextEmp);
       setTodayAttendanceCount(nextTodayAtt);
+      setTodayLateCount(nextTodayLate);
+      setTodayAbsentCount(nextTodayAbsent);
+      setTodayRequestsCount(nextTodayReqs);
+      setNewCompaniesToday(nextNewComps);
       setPendingUpgradesCount(nextPending);
       setPwaInstalls(nextPwa);
       setCompanies(nextComps);
@@ -249,6 +292,7 @@ export default function SuperAdminHQPage() {
       let nextSettings = settings;
       if (platRes.data) {
         const bank = platRes.data.bank_transfer_details || {};
+        const pricing = normalizePricingConfig(platRes.data.pricing_config);
         nextSettings = {
           id: platRes.data.id,
           commercial_reg_number: platRes.data.commercial_reg_number || "",
@@ -260,6 +304,21 @@ export default function SuperAdminHQPage() {
           account_name: bank.account_name || "",
           account_number: bank.account_number || "",
           iban: bank.iban || "",
+          maintenance_mode: Boolean(platRes.data.maintenance_mode),
+          maintenance_message:
+            platRes.data.maintenance_message || "نجري تحديثاً سريعاً لتحسين الأداء، نعود خلال دقائق.",
+          global_announcement_active: Boolean(platRes.data.global_announcement_active),
+          global_announcement_title: platRes.data.global_announcement_title || "",
+          global_announcement_body: platRes.data.global_announcement_body || "",
+          global_announcement_severity:
+            platRes.data.global_announcement_severity === "warning" ||
+            platRes.data.global_announcement_severity === "urgent"
+              ? platRes.data.global_announcement_severity
+              : "info",
+          pro_monthly: pricing.pro.monthly,
+          pro_annual: pricing.pro.annual,
+          enterprise_monthly: pricing.enterprise.monthly,
+          enterprise_annual: pricing.enterprise.annual,
         };
         setSettings(nextSettings);
       }
@@ -359,6 +418,7 @@ export default function SuperAdminHQPage() {
 
       if (data) {
         const bank = data.bank_transfer_details || {};
+        const pricing = normalizePricingConfig(data.pricing_config);
         setSettings({
           id: data.id,
           commercial_reg_number: data.commercial_reg_number || "",
@@ -370,6 +430,21 @@ export default function SuperAdminHQPage() {
           account_name: bank.account_name || "",
           account_number: bank.account_number || "",
           iban: bank.iban || "",
+          maintenance_mode: Boolean(data.maintenance_mode),
+          maintenance_message:
+            data.maintenance_message || "نجري تحديثاً سريعاً لتحسين الأداء، نعود خلال دقائق.",
+          global_announcement_active: Boolean(data.global_announcement_active),
+          global_announcement_title: data.global_announcement_title || "",
+          global_announcement_body: data.global_announcement_body || "",
+          global_announcement_severity:
+            data.global_announcement_severity === "warning" ||
+            data.global_announcement_severity === "urgent"
+              ? data.global_announcement_severity
+              : "info",
+          pro_monthly: pricing.pro.monthly,
+          pro_annual: pricing.pro.annual,
+          enterprise_monthly: pricing.enterprise.monthly,
+          enterprise_annual: pricing.enterprise.annual,
         });
       }
     } catch (err) {
@@ -543,6 +618,24 @@ export default function SuperAdminHQPage() {
           account_name: settings.account_name.trim(),
           account_number: settings.account_number.trim(),
           iban: settings.iban.trim(),
+        },
+        maintenance_mode: settings.maintenance_mode,
+        maintenance_message:
+          settings.maintenance_message.trim() ||
+          "نجري تحديثاً سريعاً لتحسين الأداء، نعود خلال دقائق.",
+        global_announcement_active: settings.global_announcement_active,
+        global_announcement_title: settings.global_announcement_title.trim() || null,
+        global_announcement_body: settings.global_announcement_body.trim() || null,
+        global_announcement_severity: settings.global_announcement_severity,
+        pricing_config: {
+          pro: {
+            monthly: Number(settings.pro_monthly) || DEFAULT_PRICING_CONFIG.pro.monthly,
+            annual: Number(settings.pro_annual) || DEFAULT_PRICING_CONFIG.pro.annual,
+          },
+          enterprise: {
+            monthly: Number(settings.enterprise_monthly) || DEFAULT_PRICING_CONFIG.enterprise.monthly,
+            annual: Number(settings.enterprise_annual) || DEFAULT_PRICING_CONFIG.enterprise.annual,
+          },
         },
         updated_at: new Date().toISOString(),
       };
@@ -966,6 +1059,77 @@ export default function SuperAdminHQPage() {
                   );
                 })()}
 
+                {/* Daily Platform Activity Summary */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-extrabold flex items-center gap-2 text-slate-900 dark:text-white">
+                        <TrendingUp className="w-4 h-4 text-emerald-600" />
+                        <span>{language === "ar" ? "ملخص نشاط المنصة اليومي" : "Daily Platform Activity Summary"}</span>
+                      </h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {new Date().toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const todayDate = new Date().toISOString().split("T")[0];
+                        const summaryText = [
+                          `📊 *ملخص نشاط منصة يَومي (Yawmi)*`,
+                          `📅 ${todayDate}`,
+                          ``,
+                          `🏢 إجمالي الشركات: ${totalCompanies} (جديد اليوم: +${newCompaniesToday})`,
+                          `🏬 الفروع: ${totalBranches} | 👥 الموظفون: ${totalEmployees}`,
+                          `✅ حضور اليوم: ${todayAttendanceCount} | ⏰ تأخير: ${todayLateCount} | ❌ غياب: ${todayAbsentCount}`,
+                          `📝 طلبات اليوم: ${todayRequestsCount} | 📲 تثبيتات PWA: ${pwaInstalls.length}`,
+                          `💳 طلبات الترقية المعلقة: ${pendingUpgradesCount}`,
+                        ].join("\n");
+                        navigator.clipboard.writeText(summaryText);
+                        setCopiedDailySummary(true);
+                        setTimeout(() => setCopiedDailySummary(false), 2200);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm shrink-0"
+                    >
+                      {copiedDailySummary ? <Check className="w-3.5 h-3.5" /> : <MessageCircle className="w-3.5 h-3.5" />}
+                      <span>
+                        {copiedDailySummary
+                          ? language === "ar" ? "تم نسخ الملخص ✓" : "Copied ✓"
+                          : language === "ar" ? "نسخ ملخص اليوم للواتساب" : "Copy Daily Summary for WhatsApp"}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+                      <span className="text-[11px] text-slate-400 block">الشركات (+اليوم)</span>
+                      <span className="text-base font-black text-slate-900 dark:text-white">
+                        {totalCompanies}{" "}
+                        <span className="text-xs font-bold text-emerald-600">(+{newCompaniesToday})</span>
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+                      <span className="text-[11px] text-slate-400 block">الفروع / الموظفون</span>
+                      <span className="text-base font-black text-slate-900 dark:text-white">
+                        {totalBranches} / {totalEmployees}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+                      <span className="text-[11px] text-slate-400 block">حضور / تأخير / غياب اليوم</span>
+                      <span className="text-base font-black text-slate-900 dark:text-white">
+                        {todayAttendanceCount} / <span className="text-amber-600">{todayLateCount}</span> /{" "}
+                        <span className="text-rose-600">{todayAbsentCount}</span>
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+                      <span className="text-[11px] text-slate-400 block">طلبات اليوم / PWA</span>
+                      <span className="text-base font-black text-slate-900 dark:text-white">
+                        {todayRequestsCount} / {pwaInstalls.length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Quick Shortcuts */}
                 <div className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
                   <h3 className="text-sm font-bold">إجراءات سريعة لمالك المنصة</h3>
@@ -1310,6 +1474,139 @@ export default function SuperAdminHQPage() {
                         />
                       </div>
                     </div>
+                  </div>
+
+                  <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <h3 className="font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <DollarSign className="w-4 h-4 text-emerald-600" />
+                      <span>تسعير الباقات الديناميكي (المصدر الموحد للموقع ونافذة الترقية)</span>
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Pro شهري (ريال)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={settings.pro_monthly}
+                          onChange={(e) => setSettings({ ...settings, pro_monthly: Number(e.target.value) })}
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Pro سنوي (ريال)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={settings.pro_annual}
+                          onChange={(e) => setSettings({ ...settings, pro_annual: Number(e.target.value) })}
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Enterprise شهري (ريال)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={settings.enterprise_monthly}
+                          onChange={(e) => setSettings({ ...settings, enterprise_monthly: Number(e.target.value) })}
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Enterprise سنوي (ريال)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={settings.enterprise_annual}
+                          onChange={(e) => setSettings({ ...settings, enterprise_annual: Number(e.target.value) })}
+                          className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Global Broadcast to All Companies */}
+                  <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                        <Megaphone className="w-4 h-4 text-indigo-600" />
+                        <span>تعميم عام لجميع الشركات (Global Broadcast)</span>
+                      </h3>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <span className="font-bold text-[11px] text-slate-500">
+                          {settings.global_announcement_active ? "مفعل" : "متوقف"}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={settings.global_announcement_active}
+                          onChange={(e) => setSettings({ ...settings, global_announcement_active: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="relative w-9 h-5 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full" />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <input
+                        type="text"
+                        value={settings.global_announcement_title}
+                        onChange={(e) => setSettings({ ...settings, global_announcement_title: e.target.value })}
+                        placeholder="عنوان التعميم العام..."
+                        className="sm:col-span-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold"
+                      />
+                      <select
+                        value={settings.global_announcement_severity}
+                        onChange={(e) => setSettings({ ...settings, global_announcement_severity: e.target.value as any })}
+                        className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold"
+                      >
+                        <option value="info">معلومة (أزرق)</option>
+                        <option value="warning">تنبيه (أصفر)</option>
+                        <option value="urgent">عاجل (أحمر)</option>
+                      </select>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={settings.global_announcement_body}
+                      onChange={(e) => setSettings({ ...settings, global_announcement_body: e.target.value })}
+                      placeholder="نص الرسالة التي ستظهر أعلى لوحات المدراء والمشرفين..."
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                    />
+                  </div>
+
+                  {/* Maintenance Mode Toggle */}
+                  <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                        <Wrench className="w-4 h-4" />
+                        <span>وضع الصيانة (Maintenance Mode)</span>
+                      </h3>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <span className="font-bold text-[11px] text-slate-500">
+                          {settings.maintenance_mode ? "مفعل (الموقع متوقف للمستخدمين)" : "غير مفعل"}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={settings.maintenance_mode}
+                          onChange={(e) => setSettings({ ...settings, maintenance_mode: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="relative w-9 h-5 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:bg-amber-600 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full" />
+                      </label>
+                    </div>
+                    <input
+                      type="text"
+                      value={settings.maintenance_message}
+                      onChange={(e) => setSettings({ ...settings, maintenance_message: e.target.value })}
+                      placeholder="رسالة الصيانة للمستخدمين..."
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                    />
                   </div>
 
                   <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700">

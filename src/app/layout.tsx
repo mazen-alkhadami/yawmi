@@ -3,6 +3,7 @@ import { Cairo } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { MaintenanceGate } from "@/components/MaintenanceGate";
 
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
@@ -54,7 +55,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <LanguageProvider>{children}</LanguageProvider>
+          <LanguageProvider>
+            <MaintenanceGate>{children}</MaintenanceGate>
+          </LanguageProvider>
         </ThemeProvider>
       </body>
     </html>

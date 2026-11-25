@@ -11,6 +11,7 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AttachmentPreviewModal } from "@/components/AttachmentPreviewModal";
 import { WhatsAppSummaryModal, SummaryStatsBlock } from "@/components/WhatsAppSummaryModal";
+import { GlobalBroadcastBanner } from "@/components/GlobalBroadcastBanner";
 import {
   UserCheck,
   Building2,
@@ -642,6 +643,7 @@ export default function BranchSupervisorPage() {
       style={{ "--brand-primary": selectedThemeColor } as React.CSSProperties}
       className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white flex flex-col font-cairo"
     >
+      <GlobalBroadcastBanner />
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3.5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
